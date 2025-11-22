@@ -65,7 +65,12 @@
 
         function startRemote() {
             document.getElementById('start-overlay').style.display = 'none';
-            peer = new Peer(myId, { host: '/', port: 3000, path: '/peerjs' });
+            peer = new Peer(myId, {
+                host: location.hostname,
+                port: location.port || (location.protocol === 'https:' ? 443 : 3000),
+                path: '/peerjs',
+                secure: (location.protocol === 'https:')
+            });
 
             navigator.mediaDevices.getUserMedia({ video: true, audio: true })
             .then(stream => {
@@ -126,7 +131,12 @@
                 // Vytvoríme dočasný Peer identity pre zdieľanie
                 // Týmto sa vyhneme konfliktu s hlavným videom
                 const shareId = 'sharer-' + myId;
-                sharePeer = new Peer(shareId, { host: '/', port: 3000, path: '/peerjs' });
+                sharePeer = new Peer(shareId, {
+                    host: location.hostname,
+                    port: location.port || (location.protocol === 'https:' ? 443 : 3000),
+                    path: '/peerjs',
+                    secure: (location.protocol === 'https:')
+                });
 
                 sharePeer.on('open', () => {
                     socket.emit('start-share', shareId);

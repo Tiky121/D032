@@ -24,7 +24,12 @@
     <script>
         function startBigScreen() {
             document.getElementById('start-overlay').style.display = 'none';
-            const peer = new Peer('big-screen', { host: '/', port: 3000, path: '/peerjs' });
+            const peer = new Peer('big-screen', {
+                host: location.hostname,
+                port: location.port || (location.protocol === 'https:' ? 443 : 3000),
+                path: '/peerjs',
+                secure: (location.protocol === 'https:')
+            });
             
             peer.on('call', call => {
                 call.answer(); 

@@ -16,7 +16,12 @@
     <script>
         const socket = io('/');
         const myId = 'sharer-local-' + Math.floor(Math.random() * 1000);
-        const peer = new Peer(myId, { host: '/', port: 3000, path: '/peerjs' });
+        const peer = new Peer(myId, {
+            host: location.hostname,
+            port: location.port || (location.protocol === 'https:' ? 443 : 3000),
+            path: '/peerjs',
+            secure: (location.protocol === 'https:')
+        });
 
         function startSharing() {
             navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false })

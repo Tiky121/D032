@@ -27,7 +27,13 @@
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
             const socket = io('/');
-            const peer = new Peer(myPeerId, { host: '/', port: 3000, path: '/peerjs' });
+            // Nájdi riadok s const peer = ... a nahraď ho:
+            const peer = new Peer(myPeerId, {
+                host: location.hostname,
+                port: location.port || (location.protocol === 'https:' ? 443 : 3000),
+                path: '/peerjs',
+                secure: (location.protocol === 'https:')
+            });
 
             navigator.mediaDevices.getUserMedia({
                 video: true,
