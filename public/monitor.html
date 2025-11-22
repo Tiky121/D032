@@ -21,17 +21,15 @@
         const monitorId = params.get('id');
         document.getElementById('mon-num').innerText = monitorId;
         
-        const myPeerId = `tiky-monitor-${monitorId}`;
+        // === KONFIGURÁCIA ===
+        const PREFIX = "tiky-final-v2-"; 
+        const myPeerId = PREFIX + `monitor-${monitorId}`;
         const isAudioMaster = (monitorId === '2');
-        const isSecure = location.protocol === 'https:';
-        const serverPort = location.port ? parseInt(location.port) : (isSecure ? 443 : 80);
-
-        // 1. Peer vytvoríme OKAMŽITE, nečakáme na kameru
-        const peer = new Peer(myPeerId, {
-            host: location.hostname,
-            port: serverPort,
-            path: '/peerjs',
-            secure: isSecure,
+        
+        const peerConfig = {
+            host: '0.peerjs.com', // Používame verejný cloud na signalizáciu
+            port: 443,
+            secure: true,
             debug: 2,
             config: {
                 'iceServers': [
@@ -54,52 +52,50 @@
                     }
                 ]
             }
-        });
+        };
+        // ====================
 
         let localStream = null;
-        const socket = io('/');
+        const socket = io('/'); // Socket ostáva na Renderi kvôli eventom o zdieľaní
 
-        // 2. Spustenie systému
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
             socket.emit('join-room', myPeerId, 'monitor');
 
+            // Najprv spustíme kameru
             navigator.mediaDevices.getUserMedia({
                 video: true,
                 audio: isAudioMaster
             }).then(stream => {
                 localStream = stream;
-                console.log("Kamera pripravená.");
+                console.log("Kamera pripravená, pripájam sa na Cloud...");
+                
+                // Až keď máme kameru, pripojíme sa na PeerJS
+                initPeer();
             }).catch(err => {
                 alert("Chyba kamery: " + err);
             });
         }
 
-        // 3. Inteligentné odpovedanie na hovor
-        peer.on('call', call => {
-            console.log("Niekto volá...");
+        function initPeer() {
+            const peer = new Peer(myPeerId, peerConfig);
+
+            peer.on('open', (id) => console.log("Monitor ONLINE s ID: " + id));
             
-            // Funkcia na zdvihnutie
-            const answerCall = () => {
-                if (localStream) {
-                    call.answer(localStream);
-                    call.on('stream', userVideoStream => {
-                        const video = document.getElementById('mainVideo');
-                        video.srcObject = userVideoStream;
-                        video.muted = !isAudioMaster;
-                        video.play().catch(e => console.log("Autoplay error:", e));
-                    });
-                } else {
-                    // Ak kamera ešte nie je ready, skúsime to o 500ms znova
-                    console.log("Čakám na kameru...");
-                    setTimeout(answerCall, 500);
-                }
-            };
-            
-            answerCall();
-        });
-        
-        peer.on('error', err => console.error("Monitor Error:", err));
+            peer.on('call', call => {
+                console.log("Prichádzajúci hovor...");
+                call.answer(localStream);
+                
+                call.on('stream', userVideoStream => {
+                    const video = document.getElementById('mainVideo');
+                    video.srcObject = userVideoStream;
+                    video.muted = !isAudioMaster; 
+                    video.play().catch(e => console.error("Autoplay:", e));
+                });
+            });
+
+            peer.on('error', err => console.error("Peer Error:", err));
+        }
     </script>
 </body>
 </html>

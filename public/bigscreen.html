@@ -12,34 +12,24 @@
     </div>
     
     <div class="video-wrapper" style="background: #0f1014; flex-direction: column;">
-        <!-- Logo alebo text keď sa nezdieľa -->
         <div id="waiting-text" style="text-align:center; color: var(--text-secondary);">
             <div style="font-size: 4rem; margin-bottom: 20px;">📺</div>
             <h2>Pripravené na zdieľanie</h2>
         </div>
-        
         <video id="screenVideo" autoplay playsinline style="display:none;"></video>
     </div>
 
     <script>
-        // --- KONFIGURÁCIA ---
-        const myPeerId = 'tiky-big-screen';
-        const isSecure = location.protocol === 'https:';
-        const serverPort = location.port ? parseInt(location.port) : (isSecure ? 443 : 80);
-
+        const PREFIX = "tiky-final-v2-"; 
+        const myPeerId = PREFIX + 'big-screen';
+        
         const peerConfig = {
-            host: location.hostname,
-            port: serverPort,
-            path: '/peerjs',
-            secure: isSecure,
-            debug: 2,
+            host: '0.peerjs.com',
+            port: 443,
+            secure: true,
             config: {
                 'iceServers': [
-                    // Google STUN (zistí IP adresu)
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    
-                    // OpenRelay TURN (Obíde Firewally a NAT - toto je to čo ti chýbalo)
                     { 
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -58,16 +48,13 @@
                 ]
             }
         };
-        // --------------------
 
         function startBigScreen() {
             document.getElementById('start-overlay').style.display = 'none';
-            
             const peer = new Peer(myPeerId, peerConfig);
             
-            peer.on('error', err => console.error("BigScreen Error:", err));
-            peer.on('open', id => console.log("BigScreen Ready:", id));
-
+            peer.on('open', (id) => console.log("BigScreen READY: " + id));
+            
             peer.on('call', call => {
                 call.answer(); 
                 call.on('stream', stream => {

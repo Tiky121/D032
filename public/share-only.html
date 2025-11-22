@@ -16,24 +16,16 @@
     <script>
         const socket = io('/');
         
-        // --- KONFIGURÁCIA ---
-        const myId = 'tiky-sharer-local-' + Math.floor(Math.random() * 1000);
-        const isSecure = location.protocol === 'https:';
-        const serverPort = location.port ? parseInt(location.port) : (isSecure ? 443 : 80);
-
+        const PREFIX = "tiky-final-v2-"; 
+        const myId = PREFIX + 'sharer-local-' + Math.floor(Math.random() * 1000);
+        
         const peerConfig = {
-            host: location.hostname,
-            port: serverPort,
-            path: '/peerjs',
-            secure: isSecure,
-            debug: 2,
+            host: '0.peerjs.com',
+            port: 443,
+            secure: true,
             config: {
                 'iceServers': [
-                    // Google STUN (zistí IP adresu)
                     { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    
-                    // OpenRelay TURN (Obíde Firewally a NAT - toto je to čo ti chýbalo)
                     { 
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -52,7 +44,6 @@
                 ]
             }
         };
-        // --------------------
 
         const peer = new Peer(myId, peerConfig);
 
@@ -64,9 +55,9 @@
                 
                 socket.emit('start-share', myId);
 
-                peer.call('tiky-big-screen', stream);
+                peer.call(PREFIX + 'big-screen', stream);
                 ['remote1', 'remote2', 'remote3'].forEach(rid => {
-                    peer.call(`tiky-${rid}`, stream);
+                    peer.call(PREFIX + rid, stream);
                 });
 
                 stream.getVideoTracks()[0].onended = function () {
