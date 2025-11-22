@@ -1,46 +1,41 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <title>Monitor FINAL</title>
+    <title>Monitor AGGRESSIVE</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
     <style>
         #debug-log {
-            position: absolute; bottom: 0; left: 0; width: 100%; height: 100px;
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 120px;
             background: rgba(0,0,0,0.8); color: lime; font-family: monospace;
             overflow-y: scroll; padding: 10px; z-index: 9000; font-size: 11px;
             pointer-events: none;
         }
-        /* Tlačidlo pre manuálne spustenie videa ak zlyhá autoplay */
         #play-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.6); display: none; /* Skryté by default */
-            justify-content: center; align-items: center; z-index: 8000;
-            cursor: pointer;
+            background: rgba(0,0,0,0.7); display: none; 
+            justify-content: center; align-items: center; z-index: 8000; cursor: pointer;
+            flex-direction: column; color: white;
         }
         #play-btn {
-            font-size: 50px; color: white; border: 3px solid white;
-            border-radius: 50%; width: 100px; height: 100px;
-            display: flex; justify-content: center; align-items: center;
-            background: rgba(0,0,0,0.5);
+            font-size: 60px; margin-bottom: 10px;
         }
     </style>
 </head>
 <body>
-    <!-- Úvodné tlačidlo -->
     <div id="start-overlay" class="start-overlay">
         <h1>Monitor <span id="mon-num"></span></h1>
         <button class="btn-primary" onclick="startSystem()">SPUSTIŤ SYSTÉM</button>
     </div>
 
-    <!-- Video kontajner -->
     <div class="video-wrapper" style="position: relative;">
-        <video id="mainVideo" style="width:100%; height:100%; object-fit:cover;" autoplay playsinline></video>
+        <!-- Pridal som muted="true" priamo do HTML pre istotu -->
+        <video id="mainVideo" style="width:100%; height:100%; object-fit:cover;" autoplay playsinline muted></video>
         
-        <!-- Tlačidlo pre vynútené prehranie -->
         <div id="play-overlay" onclick="forcePlay()">
             <div id="play-btn">▶</div>
+            <div>KLIKNI PRE VIDEO</div>
         </div>
     </div>
 
@@ -76,11 +71,10 @@
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
             log("Zapínam kameru...");
-
             navigator.mediaDevices.getUserMedia({ video: true, audio: isAudioMaster })
             .then(stream => {
                 localStream = stream;
-                log("Kamera OK. Cloud login...");
+                log("Kamera OK. Init Peer...");
                 initPeer();
             }).catch(err => log("❌ CHYBA KAMERY: " + err));
         }
@@ -98,33 +92,50 @@
                 call.answer(localStream);
 
                 call.on('stream', remoteStream => {
-                    log("🎬 Stream prijatý.");
+                    log("🎬 Stream prijatý. OKAMŽITÝ ŠTART!");
                     const video = document.getElementById('mainVideo');
+                    
+                    // 1. Priradíme stream
                     video.srcObject = remoteStream;
                     
-                    // Nastavenie zvuku
-                    video.muted = !isAudioMaster;
+                    // 2. Diagnostika trackov
+                    const videoTracks = remoteStream.getVideoTracks();
+                    const audioTracks = remoteStream.getAudioTracks();
+                    log(`📊 Info: VideoTracks: ${videoTracks.length}, AudioTracks: ${audioTracks.length}`);
+                    
+                    if (videoTracks.length > 0) {
+                        log(`🎥 Stav videa: ${videoTracks[0].enabled ? 'Zapnuté' : 'Vypnuté'} / ${videoTracks[0].readyState}`);
+                    }
 
-                    // Bezpečné prehranie
-                    video.onloadedmetadata = () => {
-                        const p = video.play();
-                        if (p !== undefined) {
-                            p.catch(error => {
-                                log("⚠️ Autoplay blokovaný! Klikni na obrazovku.");
-                                document.getElementById('play-overlay').style.display = 'flex';
-                            });
-                        }
-                    };
+                    // 3. AGRESÍVNY PLAY (nečakáme na metadata)
+                    // Najprv skúsime prehrať stíšené (to funguje vždy)
+                    video.muted = true;
+                    
+                    const p = video.play();
+                    if (p !== undefined) {
+                        p.then(() => {
+                            log("▶️ Video beží (stíšené).");
+                            // Ak video beží, skúsime zapnúť zvuk (ak má byť)
+                            if (isAudioMaster) {
+                                setTimeout(() => {
+                                    video.muted = false;
+                                    log("🔊 Zvuk zapnutý.");
+                                }, 1000);
+                            }
+                        }).catch(error => {
+                            log("⚠️ Play error: " + error);
+                            document.getElementById('play-overlay').style.display = 'flex';
+                        });
+                    }
                 });
             });
         }
 
         function forcePlay() {
             const video = document.getElementById('mainVideo');
+            video.muted = !isAudioMaster;
             video.play();
-            video.muted = !isAudioMaster; // Obnoviť zvuk ak má byť
             document.getElementById('play-overlay').style.display = 'none';
-            log("▶️ Video spustené manuálne.");
         }
     </script>
 </body>
