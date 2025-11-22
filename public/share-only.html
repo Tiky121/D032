@@ -15,12 +15,16 @@
 
     <script>
         const socket = io('/');
-        const myId = 'sharer-local-' + Math.floor(Math.random() * 1000);
+        const APP_PREFIX = 'tiky-project-';
+        const myId = APP_PREFIX + 'sharer-local-' + Math.floor(Math.random() * 1000);
+        
         const peer = new Peer(myId, {
-            host: location.hostname,
-            port: location.port || (location.protocol === 'https:' ? 443 : 3000),
-            path: '/peerjs',
-            secure: (location.protocol === 'https:')
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
         });
 
         function startSharing() {
@@ -31,8 +35,13 @@
                 
                 socket.emit('start-share', myId);
 
-                peer.call('big-screen', stream);
-                ['remote1', 'remote2', 'remote3'].forEach(id => peer.call(id, stream));
+                // Volať BigScreen s prefixom
+                peer.call(APP_PREFIX + 'big-screen', stream);
+                
+                // Volať Remote users s prefixom
+                ['remote1', 'remote2', 'remote3'].forEach(rid => {
+                    peer.call(APP_PREFIX + rid, stream);
+                });
 
                 stream.getVideoTracks()[0].onended = function () {
                     socket.emit('stop-share');

@@ -21,18 +21,25 @@
         const monitorId = params.get('id');
         document.getElementById('mon-num').innerText = monitorId;
         
-        const myPeerId = `monitor-${monitorId}`;
+        // UNIKÁTNY PREFIX (aby sme sa nebili s cudzími ľuďmi na webe)
+        const APP_PREFIX = 'tiky-project-';
+        
+        const myPeerId = APP_PREFIX + `monitor-${monitorId}`;
         const isAudioMaster = (monitorId === '2');
 
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
             const socket = io('/');
-            // Nájdi riadok s const peer = ... a nahraď ho:
+            
+            // Pripájame sa na verejný PeerJS Cloud (bez host/port nastavení)
             const peer = new Peer(myPeerId, {
-                host: location.hostname,
-                port: location.port || (location.protocol === 'https:' ? 443 : 3000),
-                path: '/peerjs',
-                secure: (location.protocol === 'https:')
+                debug: 2,
+                config: {
+                    'iceServers': [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
             });
 
             navigator.mediaDevices.getUserMedia({
@@ -40,6 +47,7 @@
                 audio: isAudioMaster
             }).then(stream => {
                 socket.emit('join-room', myPeerId, 'monitor');
+                
                 peer.on('call', call => {
                     call.answer(stream);
                     call.on('stream', userVideoStream => {
@@ -48,6 +56,13 @@
                         video.muted = !isAudioMaster; 
                     });
                 });
+                
+                // Debug log
+                peer.on('open', (id) => console.log("Moje Monitor ID je: " + id));
+                peer.on('error', (err) => alert("Chyba spojenia: " + err));
+
+            }).catch(err => {
+                alert("Chyba kamery: " + err);
             });
         }
     </script>

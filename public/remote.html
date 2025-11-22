@@ -55,21 +55,34 @@
 
     <script>
         const params = new URLSearchParams(window.location.search);
-        const myId = params.get('id'); 
-        const targetMonitor = myId.replace('remote', 'monitor-');
+        const rawId = params.get('id'); // napr. remote2
+        
+        // UNIKÁTNY PREFIX
+        const APP_PREFIX = 'tiky-project-';
+        
+        const myPeerId = APP_PREFIX + rawId; // tiky-project-remote2
+        // Vypočítame koho volať: remote2 -> monitor-2 -> tiky-project-monitor-2
+        const targetMonitorRaw = rawId.replace('remote', 'monitor-');
+        const targetMonitorId = APP_PREFIX + targetMonitorRaw;
+
         const socket = io('/');
         let peer;
         let myStream;
-        let sharePeer = null; // Peer objekt len pre zdieľanie
+        let sharePeer = null;
         let isSharing = false;
 
         function startRemote() {
             document.getElementById('start-overlay').style.display = 'none';
-            peer = new Peer(myId, {
-                host: location.hostname,
-                port: location.port || (location.protocol === 'https:' ? 443 : 3000),
-                path: '/peerjs',
-                secure: (location.protocol === 'https:')
+            
+            // Pripájame sa na verejný Cloud
+            peer = new Peer(myPeerId, {
+                debug: 2,
+                config: {
+                    'iceServers': [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
             });
 
             navigator.mediaDevices.getUserMedia({ video: true, audio: true })
@@ -77,33 +90,38 @@
                 myStream = stream;
                 document.getElementById('myVideo').srcObject = stream;
                 
-                // Pripojíme sa k monitoru
-                setTimeout(() => {
-                    const call = peer.call(targetMonitor, stream);
-                    if(call) {
-                        call.on('stream', roomStream => {
-                            document.getElementById('roomVideo').srcObject = roomStream;
-                        });
-                    }
-                }, 1000);
+                peer.on('open', (id) => {
+                    console.log("Som pripojený ako: " + id);
+                    console.log("Volám monitoru: " + targetMonitorId);
+                    
+                    // Voláme monitoru
+                    setTimeout(() => {
+                        const call = peer.call(targetMonitorId, stream);
+                        if(call) {
+                            call.on('stream', roomStream => {
+                                document.getElementById('roomVideo').srcObject = roomStream;
+                            });
+                            call.on('error', (e) => console.log("Chyba hovoru", e));
+                        }
+                    }, 1500); // Malé oneskorenie pre istotu
+                });
 
-                socket.emit('join-room', myId, 'remote');
+                socket.emit('join-room', myPeerId, 'remote');
 
-                // Počúvame, či niekto iný zdieľa
                 socket.on('is-sharing', (sharerId) => {
-                    if (sharerId.includes(myId)) return; // Ignoruj ak zdieľam ja sám
-                    // Čakáme na hovor od zdieľača (logika share)
+                    if (sharerId.includes(myPeerId)) return;
                 });
 
                 socket.on('stopped-sharing', () => {
                     document.getElementById('share-box').style.display = 'none';
                 });
+                
+                peer.on('error', err => console.log("Peer chyba:", err));
             });
 
             peer.on('call', call => {
                 call.answer();
                 call.on('stream', remoteStream => {
-                    // Predpoklad: Ak mi niekto volá a nie je to monitor, je to screen share
                     const video = document.getElementById('sharedScreenVideo');
                     video.srcObject = remoteStream;
                     document.getElementById('share-box').style.display = 'block';
@@ -111,52 +129,46 @@
             });
         }
 
-        // --- INTEGROVANÁ LOGIKA ZDIEĽANIA ---
         function toggleScreenShare() {
             const btn = document.getElementById('shareBtn');
-
             if (isSharing) {
-                // Zastaviť zdieľanie
                 stopSharing();
                 btn.classList.remove('active-share');
                 return;
             }
 
-            // Začať zdieľanie
             navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false })
             .then(screenStream => {
                 isSharing = true;
                 btn.classList.add('active-share');
 
-                // Vytvoríme dočasný Peer identity pre zdieľanie
-                // Týmto sa vyhneme konfliktu s hlavným videom
-                const shareId = 'sharer-' + myId;
+                // Prefix aj pre share ID
+                const shareId = APP_PREFIX + 'sharer-' + rawId;
+                
                 sharePeer = new Peer(shareId, {
-                    host: location.hostname,
-                    port: location.port || (location.protocol === 'https:' ? 443 : 3000),
-                    path: '/peerjs',
-                    secure: (location.protocol === 'https:')
+                    config: { 'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }] }
                 });
 
                 sharePeer.on('open', () => {
                     socket.emit('start-share', shareId);
                     
-                    // 1. Poslať na Big Screen
-                    sharePeer.call('big-screen', screenStream);
+                    // Poslať na Big Screen (s prefixom)
+                    sharePeer.call(APP_PREFIX + 'big-screen', screenStream);
                     
-                    // 2. Poslať ostatným Remote Userom (natvrdo zoznam)
+                    // Poslať ostatným (remote1, remote2...) s prefixom
                     ['remote1', 'remote2', 'remote3'].forEach(rid => {
-                        if(rid !== myId) sharePeer.call(rid, screenStream);
+                         // nevolám sám sebe
+                        if(rid !== rawId) {
+                            sharePeer.call(APP_PREFIX + rid, screenStream);
+                        }
                     });
                 });
 
-                // Ak užívateľ klikne "Ukončiť" v lište prehliadača
                 screenStream.getVideoTracks()[0].onended = () => {
                     stopSharing();
                     btn.classList.remove('active-share');
                 };
-            })
-            .catch(err => console.log("Zrušené zdieľanie", err));
+            });
         }
 
         function stopSharing() {
