@@ -1,48 +1,39 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <title>Monitor STABLE</title>
+    <title>Monitor DIAGNOSTIC</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
     <style>
-        #debug-log {
-            position: absolute; bottom: 0; left: 0; width: 100%; height: 150px;
-            background: rgba(0,0,0,0.8); color: lime; font-family: monospace;
-            overflow-y: scroll; padding: 10px; z-index: 9000; font-size: 12px;
-            pointer-events: none;
+        #stats-box {
+            position: absolute; top: 10px; left: 10px; 
+            background: rgba(0,0,0,0.9); color: #00ff00; 
+            padding: 15px; font-family: monospace; font-size: 14px;
+            z-index: 9999; border: 2px solid #00ff00; pointer-events: none;
         }
-        /* Tlačidlo pre manuálne spustenie videa */
-        #play-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); display: none; 
-            justify-content: center; align-items: center; z-index: 8000; cursor: pointer;
-            flex-direction: column; color: white;
-        }
-        #play-btn {
-            font-size: 80px; margin-bottom: 20px; color: #ff4444;
-            text-shadow: 0 0 20px black;
-        }
-        h2 { font-family: sans-serif; text-transform: uppercase; }
+        .stat-row { margin-bottom: 5px; }
+        .big-alert { font-weight: bold; color: red; animation: blink 1s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
     </style>
 </head>
 <body>
     <div id="start-overlay" class="start-overlay">
         <h1>Monitor <span id="mon-num"></span></h1>
-        <button class="btn-primary" onclick="startSystem()">SPUSTIŤ SYSTÉM</button>
+        <button class="btn-primary" onclick="startSystem()">SPUSTIŤ</button>
     </div>
 
-    <div class="video-wrapper" style="position: relative;">
-        <video id="mainVideo" style="width:100%; height:100%; object-fit:cover;" autoplay playsinline muted></video>
-        
-        <!-- Tlačidlo sa zobrazí LEN ak zlyhá automatické video -->
-        <div id="play-overlay" onclick="forcePlay()">
-            <div id="play-btn">▶</div>
-            <h2>Klikni pre spustenie obrazu</h2>
-        </div>
+    <!-- Štatistiky priamo na očiach -->
+    <div id="stats-box">
+        <div class="stat-row">STAV: <span id="status-txt">Čakám...</span></div>
+        <div class="stat-row">BITRATE: <span id="bitrate-txt" style="font-size: 20px; font-weight:bold;">0</span> kbps</div>
+        <div class="stat-row">PAKETY: <span id="packets-txt">0</span></div>
+        <div class="stat-row">ROZLÍŠENIE: <span id="res-txt">0x0</span></div>
     </div>
 
-    <div id="debug-log">Čakám...</div>
+    <div class="video-wrapper">
+        <video id="mainVideo" style="width:100%; height:100%; object-fit:cover; background: #111;" autoplay playsinline muted></video>
+    </div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
@@ -50,16 +41,20 @@
         document.getElementById('mon-num').innerText = monitorId;
         const isAudioMaster = (monitorId === '2');
 
-        function log(msg) {
-            const d = document.getElementById('debug-log');
-            d.innerHTML = `<div>${new Date().toLocaleTimeString()} - ${msg}</div>` + d.innerHTML;
-        }
-
+        const socket = io('/');
+        let peer = null;
+        let activeConnection = null;
+        let statsInterval = null;
+        
+        // Konfigurácia - skúsime iný free TURN ak ten prvý zlyháva
         const peerConfig = {
             host: '0.peerjs.com', port: 443, secure: true, debug: 2,
             config: { 
                 iceTransportPolicy: 'relay', 
                 'iceServers': [
+                    // Google STUN
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    // OpenRelay (Overený)
                     { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
                     { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
                     { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
@@ -67,104 +62,109 @@
             }
         };
 
-        const socket = io('/');
-        let localStream = null;
-        let peer = null;
-        let currentStreamId = null; // Ochrana proti dvojitému načítaniu
+        function updateStatus(msg, color = 'white') {
+            const el = document.getElementById('status-txt');
+            el.innerText = msg;
+            el.style.color = color;
+            console.log(msg);
+        }
 
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
-            log("Zapínam kameru...");
+            updateStatus("Zapínam kameru...", "yellow");
+
             navigator.mediaDevices.getUserMedia({ video: true, audio: isAudioMaster })
             .then(stream => {
-                localStream = stream;
-                log("Kamera OK. Pripájam na Cloud...");
-                initPeer();
-            }).catch(err => log("❌ CHYBA KAMERY: " + err));
+                updateStatus("Pripájam na Cloud...", "yellow");
+                initPeer(stream);
+            })
+            .catch(err => updateStatus("CHYBA KAMERY: " + err, "red"));
         }
 
-        function initPeer() {
+        function initPeer(localStream) {
             peer = new Peer(peerConfig);
 
             peer.on('open', (id) => {
-                log("✅ ONLINE. ID: " + id);
+                updateStatus("ONLINE. Čakám na hovor...", "#00ff00");
                 socket.emit('register-monitor', monitorId, id);
             });
 
             peer.on('call', call => {
-                log("📞 Prichádza hovor...");
+                updateStatus("📞 Prichádza hovor...", "cyan");
                 call.answer(localStream);
+                activeConnection = call.peerConnection;
 
                 call.on('stream', remoteStream => {
-                    // === OCHRANA PROTI DVOJITÉMU NAČÍTANIU ===
-                    if (currentStreamId === remoteStream.id) {
-                        console.log("Ignorujem duplicitný stream event");
-                        return;
-                    }
-                    currentStreamId = remoteStream.id;
-                    // ==========================================
-
-                    log("🎬 Stream prijatý. Spracovávam...");
+                    updateStatus("🎬 Stream prijatý. Buffering...", "cyan");
                     const video = document.getElementById('mainVideo');
-                    
-                    // Diagnostika
-                    const videoTracks = remoteStream.getVideoTracks();
-                    log(`📊 Video tracky: ${videoTracks.length}`);
-                    
-                    if (videoTracks.length > 0) {
-                        log(`🎥 Stav: ${videoTracks[0].readyState}`);
-                        // Ak by bol track "ended", je problém na druhej strane
-                        videoTracks[0].onended = () => log("⚠️ Video track ukončený druhou stranou!");
-                    } else {
-                        log("❌ VAROVANIE: Stream neobsahuje video!");
-                    }
-
                     video.srcObject = remoteStream;
                     
-                    // Skúsime prehrať
-                    attemptPlay(video);
+                    // Tvrdý pokus o play
+                    video.muted = true;
+                    video.play().then(() => {
+                        if(isAudioMaster) setTimeout(() => video.muted = false, 1000);
+                    }).catch(e => console.error(e));
+
+                    // SPUSTENIE MERANIA DÁT
+                    startBitrateMonitoring(activeConnection, video);
                 });
             });
+            
+            peer.on('error', err => updateStatus("PEER ERROR: " + err, "red"));
         }
 
-        function attemptPlay(video) {
-            // Vždy najprv muted pre autoplay policy
-            video.muted = true;
+        // === TOTO JE TO KĽÚČOVÉ ===
+        // Táto funkcia sa pýta prehliadača: "Tečú nejaké dáta?"
+        function startBitrateMonitoring(pc, videoElement) {
+            if(statsInterval) clearInterval(statsInterval);
             
-            const playPromise = video.play();
-            
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    log("▶️ Video beží (stíšené).");
-                    // Ak má mať zvuk, zapneme ho s oneskorením
-                    if (isAudioMaster) {
-                        setTimeout(() => {
-                            video.muted = false;
-                            log("🔊 Zvuk povolený.");
-                        }, 500);
+            let lastBytesReceived = 0;
+            let lastTimestamp = Date.now();
+
+            statsInterval = setInterval(async () => {
+                if (!pc) return;
+                
+                try {
+                    const stats = await pc.getStats();
+                    let bytesNow = 0;
+                    let packetsNow = 0;
+
+                    stats.forEach(report => {
+                        if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                            bytesNow = report.bytesReceived;
+                            packetsNow = report.packetsReceived;
+                        }
+                    });
+
+                    // Výpočet rýchlosti
+                    const timeNow = Date.now();
+                    const durationSeconds = (timeNow - lastTimestamp) / 1000;
+                    const bitrate = (((bytesNow - lastBytesReceived) * 8) / durationSeconds) / 1000; // kbps
+                    
+                    lastBytesReceived = bytesNow;
+                    lastTimestamp = timeNow;
+
+                    // Aktualizácia UI
+                    document.getElementById('bitrate-txt').innerText = Math.floor(bitrate);
+                    document.getElementById('packets-txt').innerText = packetsNow;
+                    document.getElementById('res-txt').innerText = videoElement.videoWidth + "x" + videoElement.videoHeight;
+
+                    // DIAGNOSTIKA V REÁLNOM ČASE
+                    if (bitrate > 100) {
+                        updateStatus("✅ DÁTA TEČÚ (Obraz by mal ísť)", "#00ff00");
+                        if(videoElement.videoWidth === 0) {
+                            updateStatus("⚠️ DÁTA OK, ALE DEKÓDER SPÍ", "orange");
+                        }
+                    } else if (bitrate === 0 && packetsNow > 0) {
+                         updateStatus("❌ ZASEKNUTÉ (0 kbps)", "red");
+                    } else if (packetsNow === 0) {
+                         updateStatus("❌ NIČ NEPRICHÁDZA (Firewall?)", "red");
                     }
-                })
-                .catch(error => {
-                    log("⚠️ Autoplay zlyhal (" + error.name + "). Zobrazujem tlačidlo.");
-                    // Ak to zlyhá, zobrazíme Overlay tlačidlo
-                    document.getElementById('play-overlay').style.display = 'flex';
-                });
-            }
-        }
 
-        function forcePlay() {
-            const video = document.getElementById('mainVideo');
-            log("👆 Užívateľ klikol Play.");
-            
-            video.muted = !isAudioMaster; // Nastavíme správne audio
-            
-            video.play().then(() => {
-                log("▶️ Video spustené manuálne!");
-                document.getElementById('play-overlay').style.display = 'none';
-            }).catch(err => {
-                log("❌ Stále nejde prehrať: " + err);
-                alert("Chyba prehrávania: " + err);
-            });
+                } catch (e) {
+                    console.error(e);
+                }
+            }, 1000);
         }
     </script>
 </body>
