@@ -1,27 +1,50 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <title>Monitor RELAY</title>
+    <title>Monitor FINAL</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
     <style>
         #debug-log {
-            position: absolute; bottom: 0; left: 0; width: 100%; height: 120px;
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 100px;
             background: rgba(0,0,0,0.8); color: lime; font-family: monospace;
-            overflow-y: scroll; padding: 10px; z-index: 9999; font-size: 11px;
+            overflow-y: scroll; padding: 10px; z-index: 9000; font-size: 11px;
             pointer-events: none;
+        }
+        /* Tlačidlo pre manuálne spustenie videa ak zlyhá autoplay */
+        #play-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); display: none; /* Skryté by default */
+            justify-content: center; align-items: center; z-index: 8000;
+            cursor: pointer;
+        }
+        #play-btn {
+            font-size: 50px; color: white; border: 3px solid white;
+            border-radius: 50%; width: 100px; height: 100px;
+            display: flex; justify-content: center; align-items: center;
+            background: rgba(0,0,0,0.5);
         }
     </style>
 </head>
 <body>
+    <!-- Úvodné tlačidlo -->
     <div id="start-overlay" class="start-overlay">
         <h1>Monitor <span id="mon-num"></span></h1>
         <button class="btn-primary" onclick="startSystem()">SPUSTIŤ SYSTÉM</button>
     </div>
-    
-    <video id="mainVideo" class="video-wrapper" autoplay playsinline></video>
-    <div id="debug-log">Čakám na spustenie...</div>
+
+    <!-- Video kontajner -->
+    <div class="video-wrapper" style="position: relative;">
+        <video id="mainVideo" style="width:100%; height:100%; object-fit:cover;" autoplay playsinline></video>
+        
+        <!-- Tlačidlo pre vynútené prehranie -->
+        <div id="play-overlay" onclick="forcePlay()">
+            <div id="play-btn">▶</div>
+        </div>
+    </div>
+
+    <div id="debug-log">Čakám...</div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
@@ -35,30 +58,13 @@
         }
 
         const peerConfig = {
-            host: '0.peerjs.com', 
-            port: 443, 
-            secure: true, 
-            debug: 2,
+            host: '0.peerjs.com', port: 443, secure: true, debug: 2,
             config: { 
-                // !!! TOTO JE KĽÚČOVÁ ZMENA !!!
-                // Prikazujeme prehliadaču používať LEN relay server (obíde všetky firewally)
                 iceTransportPolicy: 'relay', 
                 'iceServers': [
-                    { 
-                        urls: "turn:openrelay.metered.ca:80",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    },
-                    { 
-                        urls: "turn:openrelay.metered.ca:443",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    },
-                    { 
-                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    }
+                    { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+                    { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+                    { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
                 ]
             }
         };
@@ -71,76 +77,54 @@
             document.getElementById('start-overlay').style.display = 'none';
             log("Zapínam kameru...");
 
-            navigator.mediaDevices.getUserMedia({
-                video: true,
-                audio: isAudioMaster
-            }).then(stream => {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: isAudioMaster })
+            .then(stream => {
                 localStream = stream;
-                log("Kamera OK. Pripájam na Cloud...");
+                log("Kamera OK. Cloud login...");
                 initPeer();
-            }).catch(err => {
-                log("❌ CHYBA KAMERY: " + err);
-                alert("Kamera zlyhala. Skontrolujte povolenia.");
-            });
+            }).catch(err => log("❌ CHYBA KAMERY: " + err));
         }
 
         function initPeer() {
             peer = new Peer(peerConfig);
 
             peer.on('open', (id) => {
-                log("✅ Monitor ONLINE. ID: " + id);
+                log("✅ ONLINE. ID: " + id);
                 socket.emit('register-monitor', monitorId, id);
             });
 
             peer.on('call', call => {
-                log("📞 Prichádza hovor...");
-                
-                // Okamžité zdvihnutie (Timeout sme odstránili, lebo problém bol v sieti)
+                log("📞 Volanie...");
                 call.answer(localStream);
-                log("⚡ Hovor zdvihnutý.");
 
                 call.on('stream', remoteStream => {
-                    log("🎬 Stream prijatý. Pokus o prehratie...");
+                    log("🎬 Stream prijatý.");
                     const video = document.getElementById('mainVideo');
                     video.srcObject = remoteStream;
                     
-                    // Logika pre Autoplay a Zvuk
-                    if (!isAudioMaster) {
-                        video.muted = true;
-                    } else {
-                        video.muted = false; // Monitor 2 musí mať zvuk
-                    }
+                    // Nastavenie zvuku
+                    video.muted = !isAudioMaster;
 
-                    const playPromise = video.play();
-                    if (playPromise !== undefined) {
-                        playPromise.then(() => {
-                            log("▶️ Video beží!");
-                        }).catch(error => {
-                            log("⚠️ Autoplay error: " + error);
-                            // Ak zlyhá autoplay so zvukom, skúsime to stíšiť (fallback)
-                            if (isAudioMaster) {
-                                log("⚠️ Skúšam prehrať stíšené...");
-                                video.muted = true;
-                                video.play();
-                            }
-                        });
-                    }
+                    // Bezpečné prehranie
+                    video.onloadedmetadata = () => {
+                        const p = video.play();
+                        if (p !== undefined) {
+                            p.catch(error => {
+                                log("⚠️ Autoplay blokovaný! Klikni na obrazovku.");
+                                document.getElementById('play-overlay').style.display = 'flex';
+                            });
+                        }
+                    };
                 });
-
-                call.on('error', err => log("❌ Chyba v hovore: " + err));
-                
-                call.peerConnection.onconnectionstatechange = () => {
-                    log("📡 Stav siete: " + call.peerConnection.connectionState);
-                };
             });
+        }
 
-            peer.on('error', err => {
-                log("❌ Peer Error: " + err);
-                if (err.type === 'peer-unavailable' || err.type === 'network' || err.type === 'socket-error') {
-                    log("🔄 Reconnecting...");
-                    peer.reconnect();
-                }
-            });
+        function forcePlay() {
+            const video = document.getElementById('mainVideo');
+            video.play();
+            video.muted = !isAudioMaster; // Obnoviť zvuk ak má byť
+            document.getElementById('play-overlay').style.display = 'none';
+            log("▶️ Video spustené manuálne.");
         }
     </script>
 </body>

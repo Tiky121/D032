@@ -99,19 +99,28 @@
         }
 
         function handleCall(call) {
-            // Sledovanie stavu spojenia
-            call.peerConnection.oniceconnectionstatechange = () => {
-                log("❄️ ICE Stav: " + call.peerConnection.iceConnectionState);
-            };
-
             call.on('stream', rs => {
-                log("🎬 Prijatý stream z miestnosti!");
+                log("🎬 Stream prijatý!");
                 const v = document.getElementById('roomVideo');
                 v.srcObject = rs;
-                v.play().catch(e => log("Play error: " + e));
+                
+                // Počkáme kým sa video načíta
+                v.onloadedmetadata = () => {
+                    const p = v.play();
+                    if(p !== undefined) {
+                        p.catch(e => {
+                            log("⚠️ Autoplay blok: Klikni na video!");
+                            // Tu by sme mohli tiež zobraziť overlay, 
+                            // ale pre Remote stačí alert alebo kliknúť na video
+                            v.muted = true; // Skúsime najprv stíšiť (to prehliadače dovolia)
+                            v.play().then(() => {
+                                log("▶️ Hrá stíšené. Klikni pre zvuk.");
+                                v.muted = false; // A hneď skúsime odtišiť
+                            });
+                        });
+                    }
+                };
             });
-
-            call.on('error', e => log("❌ Call chyba: " + e));
         }
     </script>
 </body>
