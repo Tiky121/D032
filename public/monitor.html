@@ -1,40 +1,44 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <title>Monitor Debug</title>
+    <title>Monitor Stable</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
     <style>
+        /* Skryjeme log ak nechceš aby zavadzal, alebo ho necháme pre istotu */
         #debug-log {
-            position: absolute; bottom: 0; left: 0; width: 100%; height: 150px;
-            background: rgba(0,0,0,0.8); color: lime; font-family: monospace;
-            overflow-y: scroll; padding: 10px; z-index: 9999; font-size: 12px;
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 100px;
+            background: rgba(0,0,0,0.5); color: white; font-family: monospace;
+            overflow-y: scroll; padding: 5px; z-index: 9999; font-size: 10px;
+            pointer-events: none; /* Aby sa dalo klikať cez to */
         }
     </style>
 </head>
 <body>
     <div id="start-overlay" class="start-overlay">
         <h1>Monitor <span id="mon-num"></span></h1>
-        <button class="btn-primary" onclick="startSystem()">SPUSTIŤ (v2)</button>
+        <button class="btn-primary" onclick="startSystem()">SPUSTIŤ SYSTÉM</button>
     </div>
+    
+    <!-- Video musí mať playsinline a muted pre autoplay policy -->
     <video id="mainVideo" class="video-wrapper" autoplay playsinline muted></video>
-    <div id="debug-log">Log sa načíta...</div>
+    
+    <div id="debug-log">Systém pripravený...</div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
         const monitorId = params.get('id');
         document.getElementById('mon-num').innerText = monitorId;
-        
+        const isAudioMaster = (monitorId === '2');
+
         function log(msg) {
             const d = document.getElementById('debug-log');
-            d.innerHTML += `<div>${new Date().toLocaleTimeString()} - ${msg}</div>`;
-            d.scrollTop = d.scrollHeight;
-            console.log(msg);
+            d.innerHTML = `<div>${new Date().toLocaleTimeString()} - ${msg}</div>` + d.innerHTML;
         }
 
         const peerConfig = {
-            host: '0.peerjs.com', port: 443, secure: true, debug: 3,
+            host: '0.peerjs.com', port: 443, secure: true, debug: 2,
             config: { 'iceServers': [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
@@ -45,63 +49,77 @@
 
         const socket = io('/');
         let localStream = null;
+        let peer = null;
 
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
             log("Štartujem kameru...");
 
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true }) // Audio true, ale video element je muted
-            .then(stream => {
+            navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: isAudioMaster
+            }).then(stream => {
                 localStream = stream;
-                log("Kamera OK. Pripájam na Cloud...");
+                log("Kamera beží. Pripájam na Cloud...");
                 initPeer();
-            })
-            .catch(err => log("CRITICAL KAMERA ERROR: " + err));
+            }).catch(err => {
+                log("CHYBA KAMERY: " + err);
+                alert("Kamera zlyhala: " + err);
+            });
         }
 
         function initPeer() {
-            const peer = new Peer(peerConfig);
+            peer = new Peer(peerConfig);
 
             peer.on('open', (id) => {
-                log("✅ Monitor ONLINE. Moje ID: " + id);
+                log("✅ Monitor ONLINE (ID: " + id + ")");
+                // Registrácia na našom serveri
                 socket.emit('register-monitor', monitorId, id);
             });
 
             peer.on('call', call => {
-                log("📞 PRICHÁDZAJÚCI HOVOR od: " + call.peer);
-                
-                call.answer(localStream);
-                log("✅ Hovor zdvihnutý (Answered)");
+                log("📞 Prichádza hovor...");
 
-                // Sledovanie stavu spojenia
-                call.peerConnection.onconnectionstatechange = () => {
-                    log("📡 Stav spojenia: " + call.peerConnection.connectionState);
-                };
-
-                call.peerConnection.oniceconnectionstatechange = () => {
-                    log("❄️ ICE Stav: " + call.peerConnection.iceConnectionState);
-                };
-
-                call.on('stream', stream => {
-                    log("🎬 Prijímam video stream...");
-                    const v = document.getElementById('mainVideo');
-                    v.srcObject = stream;
-                    
-                    // Brutálny pokus o prehratie
-                    const playPromise = v.play();
-                    if (playPromise !== undefined) {
-                        playPromise.then(() => log("▶️ Video sa prehráva"))
-                        .catch(error => log("⚠️ Play Error (Autoplay blok?): " + error));
+                // === KĽÚČOVÁ OPRAVA ===
+                // Čakáme 1 sekundu, kým sa spojenie stabilizuje, až potom dvíhame
+                setTimeout(() => {
+                    if (!localStream) {
+                        log("❌ Chyba: Nemám kameru, nemôžem zdvihnúť.");
+                        return;
                     }
-                });
-                
-                call.on('error', err => log("❌ Call Error: " + err));
-                call.on('close', () => log("🔌 Hovor ukončený druhou stranou"));
+
+                    log("⚡ Dvíham hovor (Answer)...");
+                    call.answer(localStream); // Odpovieme našou kamerou
+
+                    // Spracovanie prichádzajúceho videa
+                    call.on('stream', remoteStream => {
+                        log("🎬 Prijímam video!");
+                        const video = document.getElementById('mainVideo');
+                        video.srcObject = remoteStream;
+                        video.muted = !isAudioMaster; // Ak nie som master, ticho
+                        
+                        const p = video.play();
+                        if (p !== undefined) {
+                            p.catch(e => log("⚠️ Autoplay blokovaný: " + e));
+                        }
+                    });
+
+                    call.on('error', err => log("❌ Chyba hovoru: " + err));
+                    call.on('close', () => log("🔌 Hovor ukončený"));
+
+                }, 1000); // 1000ms = 1 sekunda oneskorenie
             });
 
-            peer.on('error', err => log("❌ Peer Error: " + err));
+            peer.on('error', err => {
+                log("❌ Peer Error: " + err);
+                // Ak je to kritická chyba, skúsime reconnect po chvíli
+                if (err.type === 'peer-unavailable' || err.type === 'network') {
+                    setTimeout(() => peer.reconnect(), 2000);
+                }
+            });
+            
             peer.on('disconnected', () => {
-                log("⚠️ Odpojený od cloudu, skúšam reconnect...");
+                log("⚠️ Odpojený, reconnecting...");
                 peer.reconnect();
             });
         }
