@@ -1,14 +1,21 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <title>Remote</title>
+    <title>Remote Debug</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+    <style>
+        #status {
+            position:absolute; top:10px; right:10px; 
+            background:rgba(0,0,0,0.8); color:lime; padding:10px; 
+            z-index:999; font-size:12px; max-width: 200px;
+        }
+    </style>
 </head>
 <body>
-    <div id="start-overlay" class="start-overlay"><button class="btn-primary" onclick="startRemote()">PRIPOJIŤ SA</button></div>
-    <div id="status" style="position:absolute;top:10px;right:10px;background:black;color:lime;padding:5px;z-index:999;">Stav: Čakám</div>
+    <div id="start-overlay" class="start-overlay"><button class="btn-primary" onclick="startRemote()">PRIPOJIŤ SA (v2)</button></div>
+    <div id="status">Stav: Čakám<br>Log: ...</div>
 
     <div class="remote-layout">
         <div class="video-grid">
@@ -16,19 +23,20 @@
             <div class="video-box"><video id="roomVideo" autoplay playsinline></video><div class="label">Miestnosť</div></div>
             <div class="video-box"><video id="myVideo" autoplay playsinline muted></video><div class="label">Ja</div></div>
         </div>
-        <div class="control-bar">
-            <button class="control-btn blue" id="shareBtn" onclick="toggleShare()">📺</button>
-        </div>
     </div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
-        const rawId = params.get('id'); // remote2
-        // Zistíme číslo monitora (remote2 -> 2)
+        const rawId = params.get('id');
         const targetMonNum = rawId.replace('remote', ''); 
 
+        function log(msg) {
+            document.getElementById('status').innerHTML = "Log:<br>" + msg;
+            console.log(msg);
+        }
+
         const peerConfig = {
-            host: '0.peerjs.com', port: 443, secure: true, debug: 2,
+            host: '0.peerjs.com', port: 443, secure: true, debug: 3,
             config: { 'iceServers': [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
@@ -38,82 +46,58 @@
         };
 
         const socket = io('/');
-        let peer, myStream, sharePeer;
-        let isSharing = false;
-
-        function log(msg) { document.getElementById('status').innerText = msg; console.log(msg); }
+        let peer, myStream;
 
         function startRemote() {
             document.getElementById('start-overlay').style.display = 'none';
+            log("Zapínam kameru...");
             navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(s => {
                 myStream = s;
                 document.getElementById('myVideo').srcObject = s;
                 initPeer();
-            });
+            }).catch(e => log("Kamera chyba: " + e));
         }
 
         function initPeer() {
+            log("Pripájam na Cloud...");
             peer = new Peer(peerConfig);
+            
             peer.on('open', id => {
-                log("Pripojený na cloud. Hľadám monitor...");
-                // 1. Opýtame sa servera na ID monitora
+                log("✅ Cloud OK. Hľadám ID Monitora " + targetMonNum + "...");
                 socket.emit('get-monitor-id', targetMonNum);
             });
 
-            // 2. Server odpovie (ak už monitor beží)
             socket.on('monitor-id-response', (monitorPeerId) => {
-                log("Monitor nájdený: " + monitorPeerId + ". Volám...");
-                callMonitor(monitorPeerId);
+                log("🎯 Monitor nájdený: " + monitorPeerId + "<br>Vytáčam hovor...");
+                const call = peer.call(monitorPeerId, myStream);
+                handleCall(call);
             });
 
-            // 3. Alebo ak sa monitor pripojí neskôr
             socket.on('monitor-available', (num, monitorPeerId) => {
                 if (num === targetMonNum) {
-                    log("Monitor sa práve pripojil. Volám...");
-                    callMonitor(monitorPeerId);
+                    log("🔔 Monitor sa práve pripojil. Vytáčam...");
+                    const call = peer.call(monitorPeerId, myStream);
+                    handleCall(call);
                 }
             });
-
-            peer.on('call', call => {
-                call.answer();
-                call.on('stream', s => {
-                    document.getElementById('sharedScreenVideo').srcObject = s;
-                    document.getElementById('share-box').style.display = 'block';
-                });
-            });
-        }
-
-        function callMonitor(id) {
-            const call = peer.call(id, myStream);
-            if(call) {
-                call.on('stream', rs => {
-                    log("Spojenie úspešné!");
-                    document.getElementById('roomVideo').srcObject = rs;
-                });
-                call.on('error', e => log("Call error: " + e));
-            }
-        }
-
-        // Zjednodušené zdieľanie
-        function toggleShare() {
-            if(isSharing) { location.reload(); return; } // Najrýchlejší stop je reload
             
-            navigator.mediaDevices.getDisplayMedia({ video: {cursor:"always"}, audio:false }).then(stream => {
-                isSharing = true;
-                document.getElementById('shareBtn').style.background = 'green';
-                
-                sharePeer = new Peer(peerConfig);
-                sharePeer.on('open', () => {
-                    socket.emit('start-share');
-                    
-                    // Získame ID BigScreenu
-                    socket.emit('get-bigscreen-id');
-                    socket.on('bigscreen-id-response', (bsId) => sharePeer.call(bsId, stream));
-                    
-                    // Tu by sme museli riešiť broadcast ostatným, 
-                    // pre jednoduchosť to teraz posiela len na BigScreen
-                });
+            peer.on('error', e => log("❌ Peer Error: " + e));
+        }
+
+        function handleCall(call) {
+            // Sledovanie stavu spojenia
+            call.peerConnection.oniceconnectionstatechange = () => {
+                log("❄️ ICE Stav: " + call.peerConnection.iceConnectionState);
+            };
+
+            call.on('stream', rs => {
+                log("🎬 Prijatý stream z miestnosti!");
+                const v = document.getElementById('roomVideo');
+                v.srcObject = rs;
+                v.play().catch(e => log("Play error: " + e));
             });
+
+            call.on('error', e => log("❌ Call chyba: " + e));
         }
     </script>
 </body>
