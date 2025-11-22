@@ -21,15 +21,13 @@
         const monitorId = params.get('id');
         document.getElementById('mon-num').innerText = monitorId;
         
-        // --- KONFIGURÁCIA ---
         const myPeerId = `tiky-monitor-${monitorId}`;
         const isAudioMaster = (monitorId === '2');
-        
-        // Automatická detekcia prostredia (Localhost vs Render)
         const isSecure = location.protocol === 'https:';
         const serverPort = location.port ? parseInt(location.port) : (isSecure ? 443 : 80);
 
-        const peerConfig = {
+        // 1. Peer vytvoríme OKAMŽITE, nečakáme na kameru
+        const peer = new Peer(myPeerId, {
             host: location.hostname,
             port: serverPort,
             path: '/peerjs',
@@ -37,11 +35,8 @@
             debug: 2,
             config: {
                 'iceServers': [
-                    // Google STUN (zistí IP adresu)
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:stun1.l.google.com:19302' },
-                    
-                    // OpenRelay TURN (Obíde Firewally a NAT - toto je to čo ti chýbalo)
                     { 
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -59,35 +54,52 @@
                     }
                 ]
             }
-        };
-        // --------------------
+        });
 
+        let localStream = null;
+        const socket = io('/');
+
+        // 2. Spustenie systému
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
-            
-            const socket = io('/');
-            const peer = new Peer(myPeerId, peerConfig);
-
-            peer.on('error', err => console.error("Peer Error:", err));
+            socket.emit('join-room', myPeerId, 'monitor');
 
             navigator.mediaDevices.getUserMedia({
                 video: true,
                 audio: isAudioMaster
             }).then(stream => {
-                socket.emit('join-room', myPeerId, 'monitor');
-                
-                peer.on('call', call => {
-                    call.answer(stream);
-                    call.on('stream', userVideoStream => {
-                        const video = document.getElementById('mainVideo');
-                        video.srcObject = userVideoStream;
-                        video.muted = !isAudioMaster; 
-                    });
-                });
+                localStream = stream;
+                console.log("Kamera pripravená.");
             }).catch(err => {
                 alert("Chyba kamery: " + err);
             });
         }
+
+        // 3. Inteligentné odpovedanie na hovor
+        peer.on('call', call => {
+            console.log("Niekto volá...");
+            
+            // Funkcia na zdvihnutie
+            const answerCall = () => {
+                if (localStream) {
+                    call.answer(localStream);
+                    call.on('stream', userVideoStream => {
+                        const video = document.getElementById('mainVideo');
+                        video.srcObject = userVideoStream;
+                        video.muted = !isAudioMaster;
+                        video.play().catch(e => console.log("Autoplay error:", e));
+                    });
+                } else {
+                    // Ak kamera ešte nie je ready, skúsime to o 500ms znova
+                    console.log("Čakám na kameru...");
+                    setTimeout(answerCall, 500);
+                }
+            };
+            
+            answerCall();
+        });
+        
+        peer.on('error', err => console.error("Monitor Error:", err));
     </script>
 </body>
 </html>

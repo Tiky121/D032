@@ -51,15 +51,15 @@
                 <svg viewBox="0 0 24 24"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.11-.9-2-2-2H4c-1.11 0-2 .89-2 2v10c0 1.1.89 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
             </button>
         </div>
+        <!-- Pridaj toto niekam do body, napr. pod start-overlay -->
+<div id="status-log" style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px; font-size: 12px; z-index: 2000; pointer-events: none;">Stav: Čakám...</div>
     </div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
-        const rawId = params.get('id'); // remote1
-        
-        // --- KONFIGURÁCIA ---
-        const myPeerId = `tiky-${rawId}`; // tiky-remote1
-        const targetMonitorId = `tiky-monitor-${rawId.replace('remote', '')}`; // tiky-monitor-1
+        const rawId = params.get('id'); 
+        const myPeerId = `tiky-${rawId}`; 
+        const targetMonitorId = `tiky-monitor-${rawId.replace('remote', '')}`;
 
         const isSecure = location.protocol === 'https:';
         const serverPort = location.port ? parseInt(location.port) : (isSecure ? 443 : 80);
@@ -72,11 +72,8 @@
             debug: 2,
             config: {
                 'iceServers': [
-                    // Google STUN (zistí IP adresu)
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:stun1.l.google.com:19302' },
-                    
-                    // OpenRelay TURN (Obíde Firewally a NAT - toto je to čo ti chýbalo)
                     { 
                         urls: "turn:openrelay.metered.ca:80",
                         username: "openrelayproject",
@@ -95,51 +92,32 @@
                 ]
             }
         };
-        // --------------------
 
         const socket = io('/');
         let peer;
         let sharePeer = null;
         let isSharing = false;
+        let myLocalStream = null;
+
+        function logStatus(msg) {
+            document.getElementById('status-log').innerText = msg;
+            console.log(msg);
+        }
 
         function startRemote() {
             document.getElementById('start-overlay').style.display = 'none';
-            
+            logStatus("Pripájam sa na server...");
+
             peer = new Peer(myPeerId, peerConfig);
 
-            peer.on('error', err => console.error("Peer Error:", err));
-            peer.on('open', id => console.log("Moje ID:", id));
-
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-            .then(stream => {
-                document.getElementById('myVideo').srcObject = stream;
-                
-                // Voláme monitoru
-                console.log("Pokus o volanie na:", targetMonitorId);
-                setTimeout(() => {
-                    const call = peer.call(targetMonitorId, stream);
-                    if(call) {
-                        call.on('stream', roomStream => {
-                            document.getElementById('roomVideo').srcObject = roomStream;
-                        });
-                        call.on('error', e => console.error("Chyba hovoru:", e));
-                    }
-                }, 2000);
-
-                socket.emit('join-room', myPeerId, 'remote');
-
-                socket.on('is-sharing', (sharerId) => {
-                    if (!sharerId.includes(myPeerId)) {
-                        // Logika pre príjem zdieľania (čakáme na call)
-                    }
-                });
-
-                socket.on('stopped-sharing', () => {
-                    document.getElementById('share-box').style.display = 'none';
-                });
+            peer.on('open', id => {
+                logStatus("Pripojený. ID: " + id);
+                initMediaAndCall();
             });
 
-            // Odpovedanie na hovor (Screen Share)
+            peer.on('error', err => logStatus("Chyba: " + err));
+            
+            // Odpovedanie na screen share
             peer.on('call', call => {
                 call.answer();
                 call.on('stream', remoteStream => {
@@ -150,34 +128,78 @@
             });
         }
 
+        function initMediaAndCall() {
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            .then(stream => {
+                myLocalStream = stream;
+                document.getElementById('myVideo').srcObject = stream;
+                socket.emit('join-room', myPeerId, 'remote');
+                
+                // Pokus o volanie
+                attemptCall();
+            })
+            .catch(err => {
+                logStatus("Chyba mikrofónu/kamery! " + err);
+                // Fallback - skúsime aspoň video bez zvuku ak mikrofón zlyhal
+                navigator.mediaDevices.getUserMedia({ video: true, audio: false }).then(s => {
+                    myLocalStream = s;
+                    document.getElementById('myVideo').srcObject = s;
+                    attemptCall();
+                });
+            });
+        }
+
+        function attemptCall() {
+            logStatus("Volám monitor: " + targetMonitorId + "...");
+            
+            if(!myLocalStream) return;
+
+            const call = peer.call(targetMonitorId, myLocalStream);
+            
+            if(call) {
+                call.on('stream', roomStream => {
+                    logStatus("Spojenie úspešné!");
+                    document.getElementById('roomVideo').srcObject = roomStream;
+                });
+                
+                call.on('close', () => logStatus("Hovor ukončený monitorom."));
+                call.on('error', (e) => logStatus("Chyba hovoru: " + e));
+                
+                // Ak sa do 5 sekúnd nič nestane, skús znova
+                setTimeout(() => {
+                    if(!document.getElementById('roomVideo').srcObject) {
+                        logStatus("Monitor neodpovedá, skúšam znova...");
+                        attemptCall();
+                    }
+                }, 5000);
+            } else {
+                logStatus("Nepodarilo sa inicializovať hovor.");
+            }
+        }
+
+        // Funkcia pre manuálne tlačidlo (ak by si ho chcel pridať)
+        function manualReconnect() {
+            if(peer) peer.destroy();
+            startRemote();
+        }
+
+        // --- ZDIEĽANIE (Rovnaké ako predtým, len config update) ---
         function toggleScreenShare() {
             const btn = document.getElementById('shareBtn');
-            if (isSharing) {
-                stopSharing();
-                btn.classList.remove('active-share');
-                return;
-            }
+            if (isSharing) { stopSharing(); btn.classList.remove('active-share'); return; }
 
             navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false })
             .then(screenStream => {
                 isSharing = true;
                 btn.classList.add('active-share');
-
-                // Druhý Peer pre zdieľanie
                 const shareId = `tiky-sharer-${rawId}`;
                 sharePeer = new Peer(shareId, peerConfig);
 
                 sharePeer.on('open', () => {
                     socket.emit('start-share', shareId);
-                    
-                    // Poslať BigScreen
                     sharePeer.call('tiky-big-screen', screenStream);
-                    
-                    // Poslať Remote userom
                     ['remote1', 'remote2', 'remote3'].forEach(rid => {
-                        if(rid !== rawId) {
-                            sharePeer.call(`tiky-${rid}`, screenStream);
-                        }
+                        if(rid !== rawId) sharePeer.call(`tiky-${rid}`, screenStream);
                     });
                 });
 
@@ -189,10 +211,7 @@
         }
 
         function stopSharing() {
-            if (sharePeer) {
-                sharePeer.destroy();
-                sharePeer = null;
-            }
+            if (sharePeer) { sharePeer.destroy(); sharePeer = null; }
             socket.emit('stop-share');
             isSharing = false;
         }
