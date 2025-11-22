@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <title>Remote Meeting</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <!-- Start Button -->
+    <div id="start-overlay" class="start-overlay">
+        <h2 style="margin-bottom: 20px;">Pripravený na pripojenie?</h2>
+        <button class="btn-primary" onclick="startRemote()">PRIPOJIŤ SA</button>
+    </div>
+
+    <div class="remote-layout">
+        <div class="video-grid">
+            <!-- 1. Zdieľaná obrazovka (skrytá ak nikto nezdieľa) -->
+            <div class="video-box full-screen-share" id="share-box">
+                <video id="sharedScreenVideo" autoplay playsinline></video>
+                <div class="label" style="background:red;">Zdieľaná obrazovka</div>
+            </div>
+
+            <!-- 2. Miestnosť -->
+            <div class="video-box" id="room-box">
+                <video id="roomVideo" autoplay playsinline></video>
+                <div class="label">Miestnosť</div>
+            </div>
+
+            <!-- 3. Moja kamera -->
+            <div class="video-box">
+                <video id="myVideo" autoplay playsinline muted></video>
+                <div class="label">Ja</div>
+            </div>
+
+            <!-- Placeholder pre ostatných (voliteľné) -->
+            <div class="video-box" style="display:flex; align-items:center; justify-content:center; color:#444;">
+                <span>Ostatní účastníci</span>
+            </div>
+        </div>
+
+        <!-- Ovládací panel -->
+        <div class="control-bar">
+            <button class="control-btn red" title="Odpojiť" onclick="location.href='index.html'">
+                <svg viewBox="0 0 24 24"><path d="M12 2c5.52 0 10 4.48 10 10s-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2zm0 2c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm3.54 5.46L12 12.93l-3.54-3.47-1.41 1.41L10.59 14.34l-3.54 3.47 1.41 1.41L12 15.76l3.54 3.47 1.41-1.41-3.54-3.47 3.54-3.47-1.41-1.41z"/></svg>
+            </button>
+            
+            <!-- Tlačidlo zdieľania -->
+            <button class="control-btn blue" id="shareBtn" title="Zdieľať obrazovku" onclick="toggleScreenShare()">
+                <svg viewBox="0 0 24 24"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.11-.9-2-2-2H4c-1.11 0-2 .89-2 2v10c0 1.1.89 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const myId = params.get('id'); 
+        const targetMonitor = myId.replace('remote', 'monitor-');
+        const socket = io('/');
+        let peer;
+        let myStream;
+        let sharePeer = null; // Peer objekt len pre zdieľanie
+        let isSharing = false;
+
+        function startRemote() {
+            document.getElementById('start-overlay').style.display = 'none';
+            peer = new Peer(myId, { host: '/', port: 3000, path: '/peerjs' });
+
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            .then(stream => {
+                myStream = stream;
+                document.getElementById('myVideo').srcObject = stream;
+                
+                // Pripojíme sa k monitoru
+                setTimeout(() => {
+                    const call = peer.call(targetMonitor, stream);
+                    if(call) {
+                        call.on('stream', roomStream => {
+                            document.getElementById('roomVideo').srcObject = roomStream;
+                        });
+                    }
+                }, 1000);
+
+                socket.emit('join-room', myId, 'remote');
+
+                // Počúvame, či niekto iný zdieľa
+                socket.on('is-sharing', (sharerId) => {
+                    if (sharerId.includes(myId)) return; // Ignoruj ak zdieľam ja sám
+                    // Čakáme na hovor od zdieľača (logika share)
+                });
+
+                socket.on('stopped-sharing', () => {
+                    document.getElementById('share-box').style.display = 'none';
+                });
+            });
+
+            peer.on('call', call => {
+                call.answer();
+                call.on('stream', remoteStream => {
+                    // Predpoklad: Ak mi niekto volá a nie je to monitor, je to screen share
+                    const video = document.getElementById('sharedScreenVideo');
+                    video.srcObject = remoteStream;
+                    document.getElementById('share-box').style.display = 'block';
+                });
+            });
+        }
+
+        // --- INTEGROVANÁ LOGIKA ZDIEĽANIA ---
+        function toggleScreenShare() {
+            const btn = document.getElementById('shareBtn');
+
+            if (isSharing) {
+                // Zastaviť zdieľanie
+                stopSharing();
+                btn.classList.remove('active-share');
+                return;
+            }
+
+            // Začať zdieľanie
+            navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false })
+            .then(screenStream => {
+                isSharing = true;
+                btn.classList.add('active-share');
+
+                // Vytvoríme dočasný Peer identity pre zdieľanie
+                // Týmto sa vyhneme konfliktu s hlavným videom
+                const shareId = 'sharer-' + myId;
+                sharePeer = new Peer(shareId, { host: '/', port: 3000, path: '/peerjs' });
+
+                sharePeer.on('open', () => {
+                    socket.emit('start-share', shareId);
+                    
+                    // 1. Poslať na Big Screen
+                    sharePeer.call('big-screen', screenStream);
+                    
+                    // 2. Poslať ostatným Remote Userom (natvrdo zoznam)
+                    ['remote1', 'remote2', 'remote3'].forEach(rid => {
+                        if(rid !== myId) sharePeer.call(rid, screenStream);
+                    });
+                });
+
+                // Ak užívateľ klikne "Ukončiť" v lište prehliadača
+                screenStream.getVideoTracks()[0].onended = () => {
+                    stopSharing();
+                    btn.classList.remove('active-share');
+                };
+            })
+            .catch(err => console.log("Zrušené zdieľanie", err));
+        }
+
+        function stopSharing() {
+            if (sharePeer) {
+                sharePeer.destroy();
+                sharePeer = null;
+            }
+            socket.emit('stop-share');
+            isSharing = false;
+        }
+    </script>
+</body>
+</html>

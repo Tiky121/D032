@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <title>Rýchle Zdieľanie</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-title">Zdieľanie z notebooku</div>
+        <button class="btn-primary" onclick="startSharing()" id="shareBtn">ZAČAŤ ZDIEĽAŤ</button>
+        <p style="margin-top:20px; color: #888;" id="status">Pripravený</p>
+    </div>
+
+    <script>
+        const socket = io('/');
+        const myId = 'sharer-local-' + Math.floor(Math.random() * 1000);
+        const peer = new Peer(myId, { host: '/', port: 3000, path: '/peerjs' });
+
+        function startSharing() {
+            navigator.mediaDevices.getDisplayMedia({ video: { cursor: "always" }, audio: false })
+            .then(stream => {
+                document.getElementById('status').innerText = "Zdieľanie beží...";
+                document.getElementById('shareBtn').style.display = 'none';
+                
+                socket.emit('start-share', myId);
+
+                peer.call('big-screen', stream);
+                ['remote1', 'remote2', 'remote3'].forEach(id => peer.call(id, stream));
+
+                stream.getVideoTracks()[0].onended = function () {
+                    socket.emit('stop-share');
+                    location.reload();
+                };
+            });
+        }
+    </script>
+</body>
+</html>

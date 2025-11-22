@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <title>Big Screen</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+</head>
+<body>
+    <div id="start-overlay" class="start-overlay">
+        <button class="btn-primary" onclick="startBigScreen()">AKTIVOVAŤ PREZENTÁCIU</button>
+    </div>
+    
+    <div class="video-wrapper" style="background: #0f1014; flex-direction: column;">
+        <!-- Logo alebo text keď sa nezdieľa -->
+        <div id="waiting-text" style="text-align:center; color: var(--text-secondary);">
+            <div style="font-size: 4rem; margin-bottom: 20px;">📺</div>
+            <h2>Pripravené na zdieľanie</h2>
+        </div>
+        
+        <video id="screenVideo" autoplay playsinline style="display:none;"></video>
+    </div>
+
+    <script>
+        function startBigScreen() {
+            document.getElementById('start-overlay').style.display = 'none';
+            const peer = new Peer('big-screen', { host: '/', port: 3000, path: '/peerjs' });
+            
+            peer.on('call', call => {
+                call.answer(); 
+                call.on('stream', stream => {
+                    document.getElementById('screenVideo').srcObject = stream;
+                    document.getElementById('screenVideo').style.display = 'block';
+                    document.getElementById('waiting-text').style.display = 'none';
+                    
+                    // Ak zdieľanie skončí (stream inactive)
+                    stream.getVideoTracks()[0].onended = () => {
+                        document.getElementById('screenVideo').style.display = 'none';
+                        document.getElementById('waiting-text').style.display = 'block';
+                    };
+                });
+            });
+        }
+    </script>
+</body>
+</html>

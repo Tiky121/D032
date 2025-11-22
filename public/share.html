@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <title>Zdieľanie</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+    <style>
+        body { background: #333; display: flex; align-items: center; justify-content: center; }
+        .status { font-size: 24px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div style="text-align: center;">
+        <button onclick="startSharing()" style="font-size: 24px; padding: 20px 40px; background: #d83b01;">
+            ZAČAŤ ZDIEĽAŤ OBRAZOVKU
+        </button>
+        <div class="status" id="status">Pripravený</div>
+    </div>
+
+    <script>
+        const socket = io('/');
+        // Náhodné ID pre zdieľača
+        const myId = 'sharer-' + Math.floor(Math.random() * 1000);
+        const peer = new Peer(myId, { host: '/', port: 3000, path: '/peerjs' });
+
+        function startSharing() {
+            navigator.mediaDevices.getDisplayMedia({
+                video: { cursor: "always" },
+                audio: false
+            }).then(stream => {
+                document.getElementById('status').innerText = "Zdieľam...";
+                socket.emit('start-share', myId);
+
+                // 1. Pošleme obraz na BIG SCREEN
+                const callBig = peer.call('big-screen', stream);
+
+                // 2. Musíme to poslať aj remote userom
+                // (Na to by sme potrebovali zoznam userov, pre jednoduchosť tu voláme natvrdo remote1-3)
+                ['remote1', 'remote2', 'remote3'].forEach(remoteId => {
+                    peer.call(remoteId, stream);
+                });
+
+                // Keď užívateľ stopne zdieľanie cez lištu prehliadača
+                stream.getVideoTracks()[0].onended = function () {
+                    socket.emit('stop-share');
+                    document.getElementById('status').innerText = "Zdieľanie ukončené.";
+                    // Reload stránky pre reset
+                    location.reload();
+                };
+            });
+        }
+    </script>
+</body>
+</html>
