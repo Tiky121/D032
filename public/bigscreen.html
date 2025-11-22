@@ -22,22 +22,33 @@
     </div>
 
     <script>
-        const APP_PREFIX = 'tiky-project-';
-        const myBigId = APP_PREFIX + 'big-screen';
+        // --- KONFIGURÁCIA ---
+        const myPeerId = 'tiky-big-screen';
+        const isSecure = location.protocol === 'https:';
+        const serverPort = location.port ? parseInt(location.port) : (isSecure ? 443 : 80);
+
+        const peerConfig = {
+            host: location.hostname,
+            port: serverPort,
+            path: '/peerjs',
+            secure: isSecure,
+            debug: 2,
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
+        };
+        // --------------------
 
         function startBigScreen() {
             document.getElementById('start-overlay').style.display = 'none';
             
-            const peer = new Peer(myBigId, {
-                config: {
-                    'iceServers': [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' }
-                    ]
-                }
-            });
+            const peer = new Peer(myPeerId, peerConfig);
             
-            peer.on('open', (id) => console.log("BigScreen ID: " + id));
+            peer.on('error', err => console.error("BigScreen Error:", err));
+            peer.on('open', id => console.log("BigScreen Ready:", id));
 
             peer.on('call', call => {
                 call.answer(); 

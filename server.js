@@ -1,46 +1,45 @@
 const express = require('express');
 const app = express();
-const server = require('http').Server(app);
-const io = require('socket.io')(server);
+const http = require('http');
+const server = http.createServer(app);
+const { Server } = require("socket.io");
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 const { ExpressPeerServer } = require('peer');
 
 const peerServer = ExpressPeerServer(server, {
-  debug: true,
-  path: '/'
+    debug: true,
+    path: '/'
 });
 
 app.use('/peerjs', peerServer);
 app.use(express.static('public'));
 
-// Stav zdieľania obrazovky
+// Premenné pre stav
 let screenSharerId = null;
 
 io.on('connection', (socket) => {
-    // Keď sa niekto pripojí do miestnosti
     socket.on('join-room', (userId, role) => {
         socket.join('meeting-room');
         socket.to('meeting-room').emit('user-connected', userId, role);
 
-        // Ak niekto už zdieľa, povieme to novému
         if (screenSharerId) {
-            socket.emit('screen-share-active', screenSharerId);
+            socket.emit('is-sharing', screenSharerId);
         }
     });
 
-    // Niekto začal zdieľať
     socket.on('start-share', (id) => {
         screenSharerId = id;
         io.to('meeting-room').emit('is-sharing', id);
     });
 
-    // Niekto prestal zdieľať
     socket.on('stop-share', () => {
         screenSharerId = null;
         io.to('meeting-room').emit('stopped-sharing');
-    });
-
-    socket.on('disconnect', () => {
-        // riešenie odpojenia
     });
 });
 

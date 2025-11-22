@@ -55,70 +55,73 @@
 
     <script>
         const params = new URLSearchParams(window.location.search);
-        const rawId = params.get('id'); // napr. remote2
+        const rawId = params.get('id'); // remote1
         
-        // UNIKÁTNY PREFIX
-        const APP_PREFIX = 'tiky-project-';
-        
-        const myPeerId = APP_PREFIX + rawId; // tiky-project-remote2
-        // Vypočítame koho volať: remote2 -> monitor-2 -> tiky-project-monitor-2
-        const targetMonitorRaw = rawId.replace('remote', 'monitor-');
-        const targetMonitorId = APP_PREFIX + targetMonitorRaw;
+        // --- KONFIGURÁCIA ---
+        const myPeerId = `tiky-${rawId}`; // tiky-remote1
+        const targetMonitorId = `tiky-monitor-${rawId.replace('remote', '')}`; // tiky-monitor-1
+
+        const isSecure = location.protocol === 'https:';
+        const serverPort = location.port ? parseInt(location.port) : (isSecure ? 443 : 80);
+
+        const peerConfig = {
+            host: location.hostname,
+            port: serverPort,
+            path: '/peerjs',
+            secure: isSecure,
+            debug: 2,
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
+        };
+        // --------------------
 
         const socket = io('/');
         let peer;
-        let myStream;
         let sharePeer = null;
         let isSharing = false;
 
         function startRemote() {
             document.getElementById('start-overlay').style.display = 'none';
             
-            // Pripájame sa na verejný Cloud
-            peer = new Peer(myPeerId, {
-                debug: 2,
-                config: {
-                    'iceServers': [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' }
-                    ]
-                }
-            });
+            peer = new Peer(myPeerId, peerConfig);
+
+            peer.on('error', err => console.error("Peer Error:", err));
+            peer.on('open', id => console.log("Moje ID:", id));
 
             navigator.mediaDevices.getUserMedia({ video: true, audio: true })
             .then(stream => {
-                myStream = stream;
                 document.getElementById('myVideo').srcObject = stream;
                 
-                peer.on('open', (id) => {
-                    console.log("Som pripojený ako: " + id);
-                    console.log("Volám monitoru: " + targetMonitorId);
-                    
-                    // Voláme monitoru
-                    setTimeout(() => {
-                        const call = peer.call(targetMonitorId, stream);
-                        if(call) {
-                            call.on('stream', roomStream => {
-                                document.getElementById('roomVideo').srcObject = roomStream;
-                            });
-                            call.on('error', (e) => console.log("Chyba hovoru", e));
-                        }
-                    }, 1500); // Malé oneskorenie pre istotu
-                });
+                // Voláme monitoru
+                console.log("Pokus o volanie na:", targetMonitorId);
+                setTimeout(() => {
+                    const call = peer.call(targetMonitorId, stream);
+                    if(call) {
+                        call.on('stream', roomStream => {
+                            document.getElementById('roomVideo').srcObject = roomStream;
+                        });
+                        call.on('error', e => console.error("Chyba hovoru:", e));
+                    }
+                }, 2000);
 
                 socket.emit('join-room', myPeerId, 'remote');
 
                 socket.on('is-sharing', (sharerId) => {
-                    if (sharerId.includes(myPeerId)) return;
+                    if (!sharerId.includes(myPeerId)) {
+                        // Logika pre príjem zdieľania (čakáme na call)
+                    }
                 });
 
                 socket.on('stopped-sharing', () => {
                     document.getElementById('share-box').style.display = 'none';
                 });
-                
-                peer.on('error', err => console.log("Peer chyba:", err));
             });
 
+            // Odpovedanie na hovor (Screen Share)
             peer.on('call', call => {
                 call.answer();
                 call.on('stream', remoteStream => {
@@ -142,24 +145,20 @@
                 isSharing = true;
                 btn.classList.add('active-share');
 
-                // Prefix aj pre share ID
-                const shareId = APP_PREFIX + 'sharer-' + rawId;
-                
-                sharePeer = new Peer(shareId, {
-                    config: { 'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }] }
-                });
+                // Druhý Peer pre zdieľanie
+                const shareId = `tiky-sharer-${rawId}`;
+                sharePeer = new Peer(shareId, peerConfig);
 
                 sharePeer.on('open', () => {
                     socket.emit('start-share', shareId);
                     
-                    // Poslať na Big Screen (s prefixom)
-                    sharePeer.call(APP_PREFIX + 'big-screen', screenStream);
+                    // Poslať BigScreen
+                    sharePeer.call('tiky-big-screen', screenStream);
                     
-                    // Poslať ostatným (remote1, remote2...) s prefixom
+                    // Poslať Remote userom
                     ['remote1', 'remote2', 'remote3'].forEach(rid => {
-                         // nevolám sám sebe
                         if(rid !== rawId) {
-                            sharePeer.call(APP_PREFIX + rid, screenStream);
+                            sharePeer.call(`tiky-${rid}`, screenStream);
                         }
                     });
                 });

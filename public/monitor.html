@@ -21,26 +21,36 @@
         const monitorId = params.get('id');
         document.getElementById('mon-num').innerText = monitorId;
         
-        // UNIKÁTNY PREFIX (aby sme sa nebili s cudzími ľuďmi na webe)
-        const APP_PREFIX = 'tiky-project-';
-        
-        const myPeerId = APP_PREFIX + `monitor-${monitorId}`;
+        // --- KONFIGURÁCIA ---
+        const myPeerId = `tiky-monitor-${monitorId}`;
         const isAudioMaster = (monitorId === '2');
+        
+        // Automatická detekcia prostredia (Localhost vs Render)
+        const isSecure = location.protocol === 'https:';
+        const serverPort = location.port ? parseInt(location.port) : (isSecure ? 443 : 80);
+
+        const peerConfig = {
+            host: location.hostname,
+            port: serverPort,
+            path: '/peerjs',
+            secure: isSecure,
+            debug: 2,
+            config: {
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ]
+            }
+        };
+        // --------------------
 
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
-            const socket = io('/');
             
-            // Pripájame sa na verejný PeerJS Cloud (bez host/port nastavení)
-            const peer = new Peer(myPeerId, {
-                debug: 2,
-                config: {
-                    'iceServers': [
-                        { urls: 'stun:stun.l.google.com:19302' },
-                        { urls: 'stun:stun1.l.google.com:19302' }
-                    ]
-                }
-            });
+            const socket = io('/');
+            const peer = new Peer(myPeerId, peerConfig);
+
+            peer.on('error', err => console.error("Peer Error:", err));
 
             navigator.mediaDevices.getUserMedia({
                 video: true,
@@ -56,11 +66,6 @@
                         video.muted = !isAudioMaster; 
                     });
                 });
-                
-                // Debug log
-                peer.on('open', (id) => console.log("Moje Monitor ID je: " + id));
-                peer.on('error', (err) => alert("Chyba spojenia: " + err));
-
             }).catch(err => {
                 alert("Chyba kamery: " + err);
             });
