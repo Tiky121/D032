@@ -8,93 +8,64 @@
 </head>
 <body>
     <div id="start-overlay" class="start-overlay">
-        <h1 style="margin-bottom:20px;">Monitor <span id="mon-num"></span></h1>
+        <h1>Monitor <span id="mon-num"></span></h1>
         <button class="btn-primary" onclick="startSystem()">SPUSTIŤ SYSTÉM</button>
     </div>
-    
-    <div class="video-wrapper">
-        <video id="mainVideo" autoplay playsinline></video>
-    </div>
+    <video id="mainVideo" class="video-wrapper" autoplay playsinline></video>
 
     <script>
         const params = new URLSearchParams(window.location.search);
         const monitorId = params.get('id');
         document.getElementById('mon-num').innerText = monitorId;
-        
-        // === KONFIGURÁCIA ===
-        const PREFIX = "tiky-final-v2-"; 
-        const myPeerId = PREFIX + `monitor-${monitorId}`;
         const isAudioMaster = (monitorId === '2');
         
         const peerConfig = {
-            host: '0.peerjs.com', // Používame verejný cloud na signalizáciu
-            port: 443,
-            secure: true,
-            debug: 2,
-            config: {
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { 
-                        urls: "turn:openrelay.metered.ca:80",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    },
-                    { 
-                        urls: "turn:openrelay.metered.ca:443",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    },
-                    { 
-                        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-                        username: "openrelayproject",
-                        credential: "openrelayproject"
-                    }
-                ]
-            }
+            host: '0.peerjs.com', port: 443, secure: true, debug: 2,
+            config: { 'iceServers': [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+                { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+                { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
+            ]}
         };
-        // ====================
 
+        const socket = io('/');
         let localStream = null;
-        const socket = io('/'); // Socket ostáva na Renderi kvôli eventom o zdieľaní
 
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
-            socket.emit('join-room', myPeerId, 'monitor');
 
-            // Najprv spustíme kameru
             navigator.mediaDevices.getUserMedia({
                 video: true,
                 audio: isAudioMaster
             }).then(stream => {
                 localStream = stream;
-                console.log("Kamera pripravená, pripájam sa na Cloud...");
-                
-                // Až keď máme kameru, pripojíme sa na PeerJS
                 initPeer();
-            }).catch(err => {
-                alert("Chyba kamery: " + err);
-            });
+            }).catch(err => alert("Kamera Error: " + err));
         }
 
         function initPeer() {
-            const peer = new Peer(myPeerId, peerConfig);
+            // NEZADÁVAME ID - necháme vygenerovať náhodné
+            const peer = new Peer(peerConfig);
 
-            peer.on('open', (id) => console.log("Monitor ONLINE s ID: " + id));
-            
-            peer.on('call', call => {
-                console.log("Prichádzajúci hovor...");
-                call.answer(localStream);
-                
-                call.on('stream', userVideoStream => {
-                    const video = document.getElementById('mainVideo');
-                    video.srcObject = userVideoStream;
-                    video.muted = !isAudioMaster; 
-                    video.play().catch(e => console.error("Autoplay:", e));
-                });
+            peer.on('open', (id) => {
+                console.log("Moje ID je: " + id);
+                // Oznámime serveru: "Ja som Monitor X a mám toto ID"
+                socket.emit('register-monitor', monitorId, id);
             });
 
-            peer.on('error', err => console.error("Peer Error:", err));
+            peer.on('call', call => {
+                call.answer(localStream);
+                call.on('stream', stream => {
+                    const v = document.getElementById('mainVideo');
+                    v.srcObject = stream;
+                    v.muted = !isAudioMaster;
+                    v.play();
+                });
+            });
+            
+            // Auto-reconnect pri výpadku
+            peer.on('disconnected', () => peer.reconnect());
         }
     </script>
 </body>
