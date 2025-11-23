@@ -1,132 +1,199 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <title>Monitor PRO</title>
+    <title>Monitor MIXER</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        body { margin: 0; background: black; overflow: hidden; font-family: sans-serif; }
+        .video-wrapper { position: relative; width: 100vw; height: 100vh; }
+        
+        #waiting-screen {
+            position: absolute; inset: 0; background: #121212; color: #555;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 10;
+        }
+        .pulse-icon { font-size: 80px; margin-bottom: 20px; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+
+        #play-overlay {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.8); display: none; 
+            justify-content: center; align-items: center; z-index: 20; cursor: pointer;
+            flex-direction: column; color: white;
+        }
+        #play-btn { font-size: 60px; margin-bottom: 10px; color: #00aaff; }
+        #debug-log { position: absolute; bottom: 0; left: 0; color: gray; font-size: 10px; padding: 5px; z-index: 30;}
+        
+        /* Kontajner pre audio elementy (neviditeľný) */
+        #audio-mixer { display: none; }
+    </style>
 </head>
 <body>
-    <!-- Štart Overlay -->
-    <div id="start-overlay">
-        <img src="logo.svg" alt="UMIKT" class="logo-img" style="width: 200px;">
-        <h1 style="color:var(--dark-blue); margin: 20px 0;">Monitor <span id="mon-num"></span></h1>
-        <button class="btn-primary" onclick="startSystem()">SPUSTIŤ SYSTÉM</button>
+    <div id="start-overlay" style="position:absolute; inset:0; background:black; z-index:9999; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <h1 style="color:white">Monitor <span id="mon-num"></span></h1>
+        <button class="btn-primary" onclick="startSystem()" style="padding:15px 30px; font-size:20px; cursor:pointer;">SPUSTIŤ</button>
     </div>
 
     <div class="video-wrapper">
-        <!-- Čakacia obrazovka (Placeholder) -->
         <div id="waiting-screen">
-            <img src="logo.svg" alt="UMIKT" class="pulse-logo">
-            <div id="waiting-text">Čakám na pripojenie účastníka...</div>
+            <div class="pulse-icon">📡</div>
+            <h2>Čakám na pripojenie...</h2>
         </div>
 
         <video id="mainVideo" style="width:100%; height:100%; object-fit:cover;" autoplay playsinline muted></video>
         
-        <!-- Play Overlay (ak zlyhá autoplay) -->
-        <div id="play-overlay" style="display:none;" onclick="forcePlay()">
+        <div id="play-overlay" onclick="forcePlay()">
             <div id="play-btn">▶</div>
-            <h3 style="color:var(--dark-blue)">Klikni pre spustenie obrazu</h3>
+            <h3>Klikni pre obraz/zvuk</h3>
         </div>
     </div>
     
-    <!-- Audio Mixer pre Monitor 2 -->
-    <div id="audio-mixer" style="display:none;"></div>
-    
-    <div id="debug-log" style="position: absolute; bottom: 0; left: 0; padding: 5px; color: #ccc; font-size: 10px; z-index:90;">Ready</div>
+    <!-- Tu sa budú pridávať audio stopy ostatných -->
+    <div id="audio-mixer"></div>
+
+    <div id="debug-log">Ready.</div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
         const monitorId = params.get('id');
         document.getElementById('mon-num').innerText = monitorId;
-        const isAudioMaster = (monitorId === '2');
+        const isAudioMaster = (monitorId === '2'); // Monitor 2 je CENTRÁLA
 
         function log(msg) { document.getElementById('debug-log').innerText = msg; console.log(msg); }
 
         const peerConfig = {
             host: '0.peerjs.com', port: 443, secure: true, debug: 1,
-            config: { 
-                iceTransportPolicy: 'all', 
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-                    { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-                    { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-                ]
-            }
+            config: { iceTransportPolicy: 'all', 'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }] }
         };
 
         const socket = io('/');
         let localStream, peer;
+        
+        // Ukladáme si hovory, aby sme ich vedeli manažovať
         let activeCalls = {}; 
 
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
             // Monitor 2 má audio zapnuté, ostatné vypnuté
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: isAudioMaster })
-            .then(stream => { localStream = stream; initPeer(); }).catch(e => alert("Chyba: " + e));
+            .then(stream => {
+                localStream = stream;
+                initPeer();
+            }).catch(e => alert("Chyba kamery: " + e));
         }
 
         function initPeer() {
             peer = new Peer(peerConfig);
-            peer.on('open', id => { log("ID: " + id); socket.emit('register-monitor', monitorId, id); });
+            peer.on('open', id => {
+                log("ID: " + id);
+                socket.emit('register-monitor', monitorId, id);
+            });
 
             peer.on('call', call => {
-                log("Hovor od: " + call.peer);
+                log("Prichádza hovor od: " + call.peer);
                 call.answer(localStream);
+                
+                // Uložíme hovor
                 activeCalls[call.peer] = call;
-                call.on('stream', remoteStream => handleIncomingStream(call.peer, remoteStream));
+
+                call.on('stream', remoteStream => {
+                    handleIncomingStream(call.peer, remoteStream);
+                });
+
                 call.on('close', () => handleDisconnect(call.peer));
                 call.on('error', () => handleDisconnect(call.peer));
             });
         }
 
         function handleIncomingStream(peerId, stream) {
+            // Zistíme, či je to "náš" človek (podľa ID)
+            // Remote IDčka vyzerajú napr. "peerjs-generated-id" ale my sa spoliehame na logiku Remote strany
+            // Ak som Monitor X, a volá mi Remote X, chcem video.
+            // Ak som Monitor 2, a volá mi Remote 1 alebo 3, chcem IBA AUDIO.
+
+            // Logika: Remote strana pošle video track iba svojmu monitoru.
+            // Takže môžeme skontrolovať, či stream obsahuje video track.
+            
             const hasVideo = stream.getVideoTracks().length > 0;
+
             if (hasVideo) {
-                // Hlavné video
+                // Toto je HLAVNÝ video hovor pre tento monitor
+                log("Prijatý VIDEO stream.");
                 document.getElementById('waiting-screen').style.display = 'none';
                 const video = document.getElementById('mainVideo');
                 video.srcObject = stream;
                 attemptPlay(video);
             } else {
-                // Iba audio (Mixer pre Mon 2)
-                if (isAudioMaster) addAudioToMixer(peerId, stream);
+                // Toto je iba AUDIO hovor (pre Monitor 2 od ostatných)
+                if (isAudioMaster) {
+                    log("Prijatý AUDIO stream (Mixer).");
+                    addAudioToMixer(peerId, stream);
+                }
             }
         }
 
         function addAudioToMixer(peerId, stream) {
+            // Skontrolujeme či už tam nie je
             let existingAudio = document.getElementById('audio-' + peerId);
             if (existingAudio) return;
+
             const audio = document.createElement('audio');
-            audio.id = 'audio-' + peerId; audio.srcObject = stream; audio.autoplay = true; audio.playsInline = true;
+            audio.id = 'audio-' + peerId;
+            audio.srcObject = stream;
+            audio.autoplay = true;
+            audio.playsInline = true;
+            // Audio Master musí prehrať zvuk
             document.getElementById('audio-mixer').appendChild(audio);
-            audio.play().catch(e => console.log(e));
+            
+            audio.play().catch(e => console.log("Autoplay audio block:", e));
         }
 
         function handleDisconnect(peerId) {
+            log("Odpojený: " + peerId);
+            
+            // Odstrániť z mixéra
             const audioEl = document.getElementById('audio-' + peerId);
             if (audioEl) audioEl.remove();
-            setTimeout(() => {
-                const video = document.getElementById('mainVideo');
-                // Ak video stream skončil, obnovíme placeholder
+
+            // Ak to bol hlavný video stream, resetnúť obrazovku
+            const video = document.getElementById('mainVideo');
+            // Tu je to zložitejšie zistiť, či to bol on, ale pre jednoduchosť:
+            // Ak už nemáme žiadny aktívny video track v mainVideo, zobrazíme placeholder
+            if (video.srcObject && video.srcObject.active === false) {
+                 resetToWaiting();
+            }
+            // Alebo jednoduchšie - ak sa odpojí ten, čo bol v mainVideo
+            // PeerJS neposkytuje ľahko ID streamu pri close, tak skúsime resetnúť ak stream umrel
+             setTimeout(() => {
                 if (!video.srcObject || video.srcObject.getTracks().every(t => t.readyState === 'ended')) {
-                    video.srcObject = null;
-                    document.getElementById('waiting-screen').style.display = 'flex';
+                    resetToWaiting();
                 }
-            }, 500);
+             }, 500);
+        }
+
+        function resetToWaiting() {
+            const video = document.getElementById('mainVideo');
+            video.srcObject = null;
+            document.getElementById('waiting-screen').style.display = 'flex';
         }
 
         function attemptPlay(video) {
             video.muted = true; 
-            video.play().then(() => { if (isAudioMaster) setTimeout(() => video.muted = false, 1000); })
-            .catch(() => document.getElementById('play-overlay').style.display = 'flex');
+            video.play().then(() => {
+                // Ak sme Audio Master a toto je hlavné video, zapneme zvuk
+                if (isAudioMaster) setTimeout(() => video.muted = false, 1000);
+            }).catch(() => document.getElementById('play-overlay').style.display = 'flex');
         }
 
         function forcePlay() {
             const video = document.getElementById('mainVideo');
-            if (video.srcObject) { video.muted = !isAudioMaster; video.play(); }
+            if (video.srcObject) {
+                video.muted = !isAudioMaster;
+                video.play();
+            }
+            // Spustíme aj všetky audia v mixeri
             document.querySelectorAll('audio').forEach(a => a.play());
+            
             document.getElementById('play-overlay').style.display = 'none';
         }
     </script>
