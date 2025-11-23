@@ -5,18 +5,33 @@
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        body { margin: 0; background: #111; overflow: hidden; font-family: sans-serif; color: white; }
+        .wrapper { position: relative; width: 100vw; height: 100vh; }
+        
+        /* Placeholder pre Big Screen */
+        #placeholder {
+            position: absolute; inset: 0; 
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: radial-gradient(circle, #222 0%, #000 100%);
+            z-index: 10;
+        }
+        video { width: 100%; height: 100%; object-fit: contain; position: relative; z-index: 20; display: none; }
+    </style>
 </head>
 <body>
-    <div id="start-overlay">
-        <button class="btn-primary" onclick="startBS()">SPUSTIŤ PREZENTÁCIU</button>
+    <div id="start-overlay" style="position:absolute; inset:0; background:black; z-index:9999; display:flex; justify-content:center; align-items:center;">
+        <button onclick="startBS()" style="padding:20px; font-size:20px; background:#007aff; color:white; border:none; border-radius:10px; cursor:pointer;">AKTIVOVAŤ PREZENTÁCIU</button>
     </div>
 
     <div class="wrapper">
+        <!-- Placeholder -->
         <div id="placeholder">
-            <img src="logo.svg" alt="UMIKT" class="logo-img" style="opacity: 0.8;">
-            <div id="waiting-text">Pripravené na zdieľanie obrazovky</div>
+            <div style="font-size: 80px;">📺</div>
+            <h1 style="margin-top: 20px; color: #888;">Pripravené na zdieľanie</h1>
         </div>
-        <video id="screenVideo" autoplay playsinline style="display:none;"></video>
+
+        <video id="screenVideo" autoplay playsinline></video>
     </div>
 
     <script>
@@ -29,19 +44,29 @@
         function startBS() {
             document.getElementById('start-overlay').style.display = 'none';
             const peer = new Peer(peerConfig);
-            peer.on('open', id => socket.emit('register-bigscreen', id));
+            
+            peer.on('open', id => {
+                console.log("ID: " + id);
+                socket.emit('register-bigscreen', id);
+            });
+
             peer.on('call', call => {
                 call.answer();
                 call.on('stream', s => {
+                    // Prišiel stream -> Schovať placeholder, ukázať video
                     document.getElementById('placeholder').style.display = 'none';
                     const v = document.getElementById('screenVideo');
-                    v.style.display = 'block'; v.srcObject = s;
+                    v.style.display = 'block';
+                    v.srcObject = s;
                 });
             });
+
+            // Keď ktokoľvek klikne "Stop Sharing"
             socket.on('stopped-sharing', () => {
                 const v = document.getElementById('screenVideo');
-                v.srcObject = null; v.style.display = 'none';
-                document.getElementById('placeholder').style.display = 'flex';
+                v.srcObject = null; // Vyčistiť
+                v.style.display = 'none'; // Skryť
+                document.getElementById('placeholder').style.display = 'flex'; // Ukázať background
             });
         }
     </script>
