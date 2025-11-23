@@ -1,53 +1,63 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <title>Monitor UNIVERSAL</title>
+    <title>Monitor PRO</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
-    <!-- POUŽÍVAME NAJNOVŠIU VERZIU - FUNGUJE VŠADE -->
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
         body { margin: 0; background: black; overflow: hidden; font-family: sans-serif; }
         
-        #debug-log {
-            position: absolute; bottom: 0; left: 0; width: 100%; height: 80px;
-            background: rgba(0,0,0,0.5); color: rgba(255,255,255,0.7); 
-            pointer-events: none; z-index: 9000; font-size: 12px; padding: 5px;
+        /* Overlay pre video */
+        .video-wrapper { position: relative; width: 100vw; height: 100vh; }
+        
+        /* Čakacia obrazovka (Placeholder) */
+        #waiting-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #121212; color: #555;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 10; /* Pod play-overlayom, ale nad videom ak nebeží */
         }
+        .pulse-icon {
+            font-size: 80px; margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
 
-        /* Univerzálne overlay tlačidlo (zobrazí sa len keď treba) */
+        /* Tlačidlo pre manuálne spustenie */
         #play-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.8); display: none; 
-            justify-content: center; align-items: center; z-index: 8000; cursor: pointer;
-            flex-direction: column; color: white; text-align: center;
+            justify-content: center; align-items: center; z-index: 20; cursor: pointer;
+            flex-direction: column; color: white;
         }
-        #play-btn {
-            font-size: 60px; margin-bottom: 20px; color: #00aaff;
-            border: 2px solid #00aaff; border-radius: 50%; width: 100px; height: 100px;
-            display: flex; justify-content: center; align-items: center;
-        }
+        #play-btn { font-size: 60px; margin-bottom: 10px; color: #00aaff; }
+        
+        #debug-log { position: absolute; bottom: 0; left: 0; color: gray; font-size: 10px; padding: 5px; z-index: 30;}
     </style>
 </head>
 <body>
-    <!-- Štartovacie tlačidlo -->
-    <div id="start-overlay" class="start-overlay" style="display:flex; flex-direction:column; justify-content:center; align-items:center; position:absolute; top:0; left:0; width:100%; height:100%; background:black; z-index:9999;">
-        <h1 style="color:white;">Monitor <span id="mon-num"></span></h1>
-        <button class="btn-primary" onclick="startSystem()" style="padding:20px; font-size:20px; cursor:pointer;">SPUSTIŤ SYSTÉM</button>
+    <div id="start-overlay" style="position:absolute; inset:0; background:black; z-index:9999; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <h1 style="color:white">Monitor <span id="mon-num"></span></h1>
+        <button class="btn-primary" onclick="startSystem()" style="padding:15px 30px; font-size:20px; cursor:pointer;">SPUSTIŤ</button>
     </div>
 
-    <div class="video-wrapper" style="width:100vw; height:100vh; position: relative;">
-        <!-- playsinline je kritické pre iOS, autoplay pre PC -->
+    <div class="video-wrapper">
+        <!-- Čakacia obrazovka -->
+        <div id="waiting-screen">
+            <div class="pulse-icon">📡</div>
+            <h2>Čakám na pripojenie...</h2>
+        </div>
+
         <video id="mainVideo" style="width:100%; height:100%; object-fit:cover;" autoplay playsinline muted></video>
         
-        <!-- Tlačidlo pre prípad, že prehliadač zablokuje autoplay (iOS/Android) -->
         <div id="play-overlay" onclick="forcePlay()">
             <div id="play-btn">▶</div>
             <h3>Klikni pre obraz</h3>
         </div>
     </div>
 
-    <div id="debug-log">System ready.</div>
+    <div id="debug-log">Ready.</div>
 
     <script>
         const params = new URLSearchParams(window.location.search);
@@ -55,124 +65,78 @@
         document.getElementById('mon-num').innerText = monitorId;
         const isAudioMaster = (monitorId === '2');
 
-        function log(msg) {
-            const d = document.getElementById('debug-log');
-            d.innerHTML = `<div>${new Date().toLocaleTimeString()} - ${msg}</div>` + d.innerHTML;
-        }
+        function log(msg) { document.getElementById('debug-log').innerText = msg; console.log(msg); }
 
-        // Univerzálna konfigurácia pre PC aj Mobil
         const peerConfig = {
-            host: '0.peerjs.com', 
-            port: 443, 
-            secure: true, 
-            debug: 1, // Menej spamu v konzole
-            config: { 
-                iceTransportPolicy: 'all', // Povolí Wifi (Direct) aj 4G (Relay)
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-                    { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-                    { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-                ]
-            }
+            host: '0.peerjs.com', port: 443, secure: true, debug: 1,
+            config: { iceTransportPolicy: 'all', 'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }] }
         };
 
         const socket = io('/');
-        let localStream = null;
-        let peer = null;
-        let currentStreamId = null;
+        let localStream, peer;
+        let currentCall = null;
 
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
-            log("Zapínam kameru...");
-
-            // Constraints pre PC aj Mobil
-            const constraints = {
-                video: { facingMode: "user" }, // Preferuje prednú kameru na mobile
-                audio: isAudioMaster
-            };
-
-            navigator.mediaDevices.getUserMedia(constraints)
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: isAudioMaster })
             .then(stream => {
                 localStream = stream;
-                log("Kamera beží. Pripájam cloud...");
                 initPeer();
-            }).catch(err => {
-                log("❌ CHYBA KAMERY: " + err);
-                alert("Prosím povoľte kameru a mikrofón!");
-            });
+            }).catch(e => alert("Chyba kamery: " + e));
         }
 
         function initPeer() {
             peer = new Peer(peerConfig);
-
-            peer.on('open', (id) => {
-                log("✅ ONLINE. ID: " + id);
+            peer.on('open', id => {
+                log("ID: " + id);
                 socket.emit('register-monitor', monitorId, id);
             });
 
             peer.on('call', call => {
-                log("📞 Prichádza hovor...");
+                // Ak už máme hovor, starý zrušíme (čistka)
+                if (currentCall) currentCall.close();
+                currentCall = call;
+
                 call.answer(localStream);
-
+                
                 call.on('stream', remoteStream => {
-                    // Ochrana proti dvojitému eventu
-                    if (currentStreamId === remoteStream.id) return;
-                    currentStreamId = remoteStream.id;
-
-                    log("🎬 Stream prijatý.");
+                    log("Stream prijatý.");
+                    // SKRYŤ ČAKACIU OBRAZOVKU
+                    document.getElementById('waiting-screen').style.display = 'none';
+                    
                     const video = document.getElementById('mainVideo');
                     video.srcObject = remoteStream;
-                    
-                    attemptUniversalPlay(video);
+                    attemptPlay(video);
                 });
 
-                call.on('error', err => log("Call Error: " + err));
-            });
-            
-            peer.on('error', err => {
-                log("Peer Error: " + err.type);
-                if (err.type === 'peer-unavailable' || err.type === 'network' || err.type === 'socket-error') {
-                    log("Reconnect...");
-                    peer.reconnect();
-                }
+                // === KĽÚČOVÁ ČASŤ: ODPOJENIE ===
+                call.on('close', () => {
+                    log("Účastník sa odpojil.");
+                    resetToWaiting();
+                });
+                
+                call.on('error', () => resetToWaiting());
             });
         }
 
-        function attemptUniversalPlay(video) {
-            // 1. Vždy najprv stíšime (Prehliadače dovolia autoplay iba ak je muted)
-            video.muted = true;
-            
-            const playPromise = video.play();
-            
-            if (playPromise !== undefined) {
-                playPromise.then(() => {
-                    log("▶️ Video beží (Muted).");
-                    // 2. Ak video beží, skúsime zapnúť zvuk (ak sme Monitor 2)
-                    if (isAudioMaster) {
-                        setTimeout(() => {
-                            video.muted = false;
-                            log("🔊 Pokus o zvuk...");
-                        }, 1000);
-                    }
-                })
-                .catch(error => {
-                    // 3. Ak autoplay zlyhá (iPhone/Android), zobrazíme tlačidlo
-                    log("⚠️ Autoplay blokovaný. Čakám na klik.");
-                    document.getElementById('play-overlay').style.display = 'flex';
-                });
-            }
+        function resetToWaiting() {
+            const video = document.getElementById('mainVideo');
+            video.srcObject = null; // Vymaže posledný frame
+            document.getElementById('waiting-screen').style.display = 'flex'; // Ukáže background
+        }
+
+        function attemptPlay(video) {
+            video.muted = true; 
+            video.play().then(() => {
+                if (isAudioMaster) setTimeout(() => video.muted = false, 1000);
+            }).catch(() => document.getElementById('play-overlay').style.display = 'flex');
         }
 
         function forcePlay() {
             const video = document.getElementById('mainVideo');
-            // Pri manuálnom kliku môžeme rovno zapnúť zvuk
-            video.muted = !isAudioMaster; 
-            
-            video.play().then(() => {
-                log("▶️ Spustené manuálne.");
-                document.getElementById('play-overlay').style.display = 'none';
-            }).catch(err => alert("Chyba prehrávania: " + err));
+            video.muted = !isAudioMaster;
+            video.play();
+            document.getElementById('play-overlay').style.display = 'none';
         }
     </script>
 </body>

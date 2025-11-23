@@ -5,186 +5,64 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Remote PRO</title>
     <script src="/socket.io/socket.io.js"></script>
-    <!-- Najnovší PeerJS -->
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-    
     <style>
-        /* --- RESET & BASIC --- */
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            background-color: #121212; 
-            color: white; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            height: 100dvh; /* Dynamic Viewport Height - rieši mobilné lišty */
-            width: 100vw;
-            overflow: hidden;
-            display: flex;
-            flex-direction: column;
-        }
+        body { background: #121212; color: white; font-family: sans-serif; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
 
-        /* --- LAYOUT --- */
-        /* Hlavná časť s videom zaberá všetko voľné miesto */
-        .video-container {
-            flex: 1; 
-            display: grid;
-            grid-template-rows: 1fr 1fr; /* Dve riadky (Miestnosť + Ja) */
-            gap: 10px;
-            padding: 10px;
-            position: relative;
-        }
-        
-        /* Ak sme na širokom displeji (PC), dáme to vedľa seba */
-        @media (min-width: 768px) {
-            .video-container {
-                grid-template-rows: 1fr;
-                grid-template-columns: 1fr 1fr;
-            }
-        }
+        .video-container { flex: 1; display: grid; gap: 10px; padding: 10px; position: relative; grid-template-rows: 1fr 1fr; }
+        @media (min-width: 768px) { .video-container { grid-template-rows: 1fr; grid-template-columns: 1fr 1fr; } }
 
-        .video-box {
-            background: #1e1e1e;
-            border-radius: 16px;
-            overflow: hidden;
-            position: relative;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
+        .video-box { background: #1e1e1e; border-radius: 16px; overflow: hidden; position: relative; display: flex; justify-content: center; align-items: center; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        .label { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 10px; font-size: 12px; }
 
-        /* Video sa prispôsobí, aby vyplnilo box (cover) */
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover; 
-        }
-
-        .label {
-            position: absolute;
-            bottom: 10px; left: 10px;
-            background: rgba(0,0,0,0.6);
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            backdrop-filter: blur(4px);
-            pointer-events: none;
-        }
-
-        /* Zdieľaná obrazovka prekrýva všetko */
+        /* Zdieľaná obrazovka (Full overlay) */
         .full-screen-share {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 50;
-            display: none; /* JS prepne */
-            background: #000;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 50; background: #000;
+            display: none; /* Default skryté */
+            flex-direction: column; justify-content: center; align-items: center;
         }
-        .full-screen-share video { object-fit: contain; } /* Aby bolo vidno texty */
-
-        /* --- OVLÁDACIA LIŠTA --- */
-        .control-bar {
-            height: 80px;
-            background: #1e1e1e;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 20px;
-            border-top-left-radius: 20px;
-            border-top-right-radius: 20px;
-            box-shadow: 0 -5px 20px rgba(0,0,0,0.3);
-            flex-shrink: 0; /* Nezmenšovať */
-            padding-bottom: env(safe-area-inset-bottom); /* Pre iPhone X+ */
-        }
-
-        .btn {
-            width: 55px; height: 55px;
-            border-radius: 50%;
-            border: none;
-            background: #333;
-            color: white;
-            font-size: 24px;
-            cursor: pointer;
-            display: flex; justify-content: center; align-items: center;
-            transition: all 0.2s;
-            -webkit-tap-highlight-color: transparent;
-        }
-        .btn:active { transform: scale(0.9); }
+        .full-screen-share video { object-fit: contain; }
         
+        /* Placeholder pre zdieľanie (ak sa načítava alebo čaká) */
+        .share-placeholder { color: #888; display: flex; flex-direction: column; align-items: center; }
+
+        .control-bar { height: 80px; background: #1e1e1e; display: flex; justify-content: center; align-items: center; gap: 20px; flex-shrink: 0; }
+        .btn { width: 55px; height: 55px; border-radius: 50%; border: none; background: #333; color: white; font-size: 24px; cursor: pointer; display: flex; justify-content: center; align-items: center; }
         .btn-red { background: #ff4444; }
         .btn-blue { background: #007aff; }
-        .btn-gray { background: #3a3a3c; }
-        
-        /* Mute stavy */
-        .muted-active { background: #ff4444 !important; color: white; }
+        .muted-active { background: #ff4444 !important; }
         .share-active { background: #34c759 !important; color: black; }
-
-        /* SVG Ikony */
         svg { width: 24px; height: 24px; fill: currentColor; }
-
-        /* Overlay pred štartom */
-        #start-overlay {
-            position: absolute; inset: 0; background: #000; z-index: 9999;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-        }
-        .big-btn {
-            padding: 15px 40px; font-size: 18px; border-radius: 30px;
-            border: none; background: #007aff; color: white; font-weight: bold;
-            margin-top: 20px;
-        }
-        #status { position: absolute; top: 10px; width: 100%; text-align: center; color: lime; font-size: 12px; z-index: 100; text-shadow: 0 1px 2px black;}
     </style>
 </head>
 <body>
-
-    <!-- Štartovacia obrazovka -->
-    <div id="start-overlay">
-        <h2 style="color: #aaa;">Pripojiť ako:</h2>
-        <h1 id="user-id-display" style="margin-bottom: 20px;">...</h1>
-        <button class="big-btn" onclick="startRemote()">PRIPOJIŤ SA</button>
+    <div id="start-overlay" style="position:absolute; inset:0; background:black; z-index:9999; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <h2 style="color:#aaa">Pripojenie:</h2>
+        <h1 id="user-id-display" style="color:white; margin-bottom:20px">...</h1>
+        <button onclick="startRemote()" style="padding:15px 40px; font-size:18px; border-radius:30px; border:none; background:#007aff; color:white; font-weight:bold;">PRIPOJIŤ SA</button>
     </div>
 
-    <div id="status">Stav: Čakám na akciu...</div>
-
-    <!-- Hlavný kontajner videa -->
     <div class="video-container">
-        <!-- Zdieľaná obrazovka (skrytá) -->
-        <div class="video-box full-screen-share" id="share-box">
+        <!-- Zdieľacia vrstva -->
+        <div class="full-screen-share" id="share-box">
+            <div class="share-placeholder" id="share-loading">
+                <h2>Načítavam zdieľanie...</h2>
+            </div>
             <video id="sharedScreenVideo" autoplay playsinline></video>
             <div class="label" style="background:red;">Zdieľaná obrazovka</div>
-            <button class="btn btn-gray" style="position:absolute; top:20px; right:20px;" onclick="location.reload()">❌</button>
         </div>
 
-        <!-- Video miestnosti -->
-        <div class="video-box">
-            <video id="roomVideo" autoplay playsinline></video>
-            <div class="label">Miestnosť</div>
-        </div>
-
-        <!-- Moje video -->
-        <div class="video-box">
-            <video id="myVideo" autoplay playsinline muted></video>
-            <div class="label">Ja</div>
-        </div>
+        <div class="video-box"><video id="roomVideo" autoplay playsinline></video><div class="label">Miestnosť</div></div>
+        <div class="video-box"><video id="myVideo" autoplay playsinline muted></video><div class="label">Ja</div></div>
     </div>
 
-    <!-- Ovládacie tlačidlá dole -->
     <div class="control-bar">
-        <!-- MUTE BUTTON -->
-        <button class="btn btn-gray" id="muteBtn" onclick="toggleMute()">
-            <!-- Ikona mikrofónu -->
-            <svg id="mic-icon-on" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
-            <!-- Ikona preškrtnutého mikrofónu (skrytá) -->
-            <svg id="mic-icon-off" style="display:none;" viewBox="0 0 24 24"><path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 2.76 2.23 5 5 5 .29 0 .55-.06.8-.16l3.09 3.09 1.27-1.27L4.27 3zM12 19c-2.76 0-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
-        </button>
-
-        <!-- HANGUP BUTTON -->
-        <button class="btn btn-red" onclick="location.href='index.html'">
-            <svg viewBox="0 0 24 24"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.81 7.46 7 12 7s8.66 1.81 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg>
-        </button>
-
-        <!-- SHARE BUTTON -->
-        <button class="btn btn-blue" id="shareBtn" onclick="toggleShare()">
-            <svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12zm-2-9H5v7h14V8z"/></svg>
-        </button>
+        <button class="btn" id="muteBtn" onclick="toggleMute()"><svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg></button>
+        <button class="btn btn-red" onclick="location.reload()"><svg viewBox="0 0 24 24"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.81 7.46 7 12 7s8.66 1.81 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/></svg></button>
+        <button class="btn btn-blue" id="shareBtn" onclick="toggleShare()"><svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 14H3V5h18v12zm-2-9H5v7h14V8z"/></svg></button>
     </div>
 
     <script>
@@ -193,146 +71,91 @@
         const targetMonNum = rawId.replace('remote', ''); 
         document.getElementById('user-id-display').innerText = rawId;
 
-        function log(msg) { 
-            document.getElementById('status').innerText = msg; 
-            console.log(msg); 
-        }
-
-        // Univerzálny Config
         const peerConfig = {
             host: '0.peerjs.com', port: 443, secure: true, debug: 1,
-            config: { 
-                iceTransportPolicy: 'all', 
-                'iceServers': [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-                    { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-                    { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-                ]
-            }
+            config: { iceTransportPolicy: 'all', 'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }] }
         };
 
         const socket = io('/');
-        let peer, myStream, sharePeer;
-        let isSharing = false;
-        let isMuted = false; // Stav mikrofónu
+        let peer, myStream, sharePeer, isSharing = false, isMuted = false;
 
         function startRemote() {
             document.getElementById('start-overlay').style.display = 'none';
-            log("Zapínam kameru...");
-
-            navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-            .then(stream => {
-                myStream = stream;
-                document.getElementById('myVideo').srcObject = stream;
-                initPeer();
-            })
-            .catch(err => {
-                log("Chyba kamery: " + err);
-                alert("Povoľte kameru a mikrofón!");
-            });
+            navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(s => {
+                myStream = s; document.getElementById('myVideo').srcObject = s; initPeer();
+            }).catch(e => alert("Povoľ kameru!"));
         }
 
-        // === MUTE FUNKCIONALITA ===
         function toggleMute() {
-            if (!myStream) return;
-            
-            const audioTracks = myStream.getAudioTracks();
-            if (audioTracks.length === 0) return;
-
-            // Prepnutie stavu
+            if(!myStream) return;
             isMuted = !isMuted;
-            audioTracks[0].enabled = !isMuted; // enabled=true (počuť), enabled=false (ticho)
-
-            // Update Grafiky
-            const btn = document.getElementById('muteBtn');
-            const iconOn = document.getElementById('mic-icon-on');
-            const iconOff = document.getElementById('mic-icon-off');
-
-            if (isMuted) {
-                btn.classList.add('muted-active');
-                iconOn.style.display = 'none';
-                iconOff.style.display = 'block';
-                log("Mikrofón: VYPNUTÝ");
-            } else {
-                btn.classList.remove('muted-active');
-                iconOn.style.display = 'block';
-                iconOff.style.display = 'none';
-                log("Mikrofón: ZAPNUTÝ");
-            }
+            myStream.getAudioTracks()[0].enabled = !isMuted;
+            document.getElementById('muteBtn').classList.toggle('muted-active', isMuted);
         }
 
         function initPeer() {
             peer = new Peer(peerConfig);
-            
-            peer.on('open', id => {
-                log("Online. Hľadám Monitor " + targetMonNum + "...");
-                socket.emit('get-monitor-id', targetMonNum);
-            });
+            peer.on('open', id => socket.emit('get-monitor-id', targetMonNum));
 
-            socket.on('monitor-id-response', (monitorPeerId) => {
-                log("Monitor nájdený. Volám...");
-                callMonitor(monitorPeerId);
-            });
+            socket.on('monitor-id-response', (mid) => callMonitor(mid));
+            socket.on('monitor-available', (num, mid) => { if(num===targetMonNum) callMonitor(mid); });
 
-            socket.on('monitor-available', (num, monitorPeerId) => {
-                if (num === targetMonNum) {
-                    log("Monitor sa pripojil. Volám...");
-                    callMonitor(monitorPeerId);
-                }
-            });
-
-            // Odpoveď na Screen Share
+            // Príjem zdieľania
             peer.on('call', call => {
                 call.answer();
                 call.on('stream', s => {
+                    // Prišlo video -> Schovať loader, ukázať video
+                    document.getElementById('share-loading').style.display = 'none';
                     const v = document.getElementById('sharedScreenVideo');
+                    v.style.display = 'block';
                     v.srcObject = s;
                     document.getElementById('share-box').style.display = 'flex';
-                    v.play().catch(e => console.log(e));
+                    v.play();
                 });
             });
-            
-            peer.on('error', err => {
-                log("Error: " + err.type);
-                if(err.type === 'peer-unavailable') peer.reconnect();
+
+            // RESET ZDIEĽANIA (Keď niekto iný prestane zdieľať)
+            socket.on('stopped-sharing', () => {
+                document.getElementById('share-box').style.display = 'none'; // Celé okno preč
+                const v = document.getElementById('sharedScreenVideo');
+                v.srcObject = null;
+                // Reset stavu vlastného tlačidla ak som to bol ja
+                if(isSharing) {
+                    isSharing = false;
+                    document.getElementById('shareBtn').classList.remove('share-active');
+                }
             });
         }
 
         function callMonitor(id) {
             const call = peer.call(id, myStream);
-            
             call.on('stream', rs => {
-                log("✅ SPOJENIE!");
                 const v = document.getElementById('roomVideo');
                 v.srcObject = rs;
-                v.play().catch(e => {
-                    // Fallback pre autoplay block
-                    log("Klikni pre video!");
-                    v.muted = true;
-                    v.play();
-                });
+                v.play().catch(() => { v.muted=true; v.play(); });
             });
-            
-            call.on('error', e => log("Call failed: " + e));
         }
 
         function toggleShare() {
-            if(isSharing) { location.reload(); return; } 
+            if(isSharing) { 
+                // Stop sharing
+                if(sharePeer) { sharePeer.destroy(); sharePeer=null; }
+                socket.emit('stop-share');
+                isSharing = false;
+                document.getElementById('shareBtn').classList.remove('share-active');
+                return;
+            } 
             
-            navigator.mediaDevices.getDisplayMedia({ video: {cursor:"always"}, audio:false })
-            .then(stream => {
+            navigator.mediaDevices.getDisplayMedia({ video: {cursor:"always"}, audio:false }).then(stream => {
                 isSharing = true;
                 document.getElementById('shareBtn').classList.add('share-active');
-                
                 sharePeer = new Peer(peerConfig);
                 sharePeer.on('open', () => {
                     socket.emit('start-share');
                     socket.emit('get-bigscreen-id');
                     socket.on('bigscreen-id-response', (bsId) => sharePeer.call(bsId, stream));
                 });
-                
-                stream.getVideoTracks()[0].onended = () => location.reload();
+                stream.getVideoTracks()[0].onended = () => { toggleShare(); }; // Auto-stop cez lištu
             });
         }
     </script>

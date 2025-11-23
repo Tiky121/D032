@@ -1,41 +1,72 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-    <title>Big Screen</title>
+    <title>Big Screen PRO</title>
     <link rel="stylesheet" href="style.css">
     <script src="/socket.io/socket.io.js"></script>
-    <script src="https://unpkg.com/peerjs@1.3.1/dist/peerjs.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        body { margin: 0; background: #111; overflow: hidden; font-family: sans-serif; color: white; }
+        .wrapper { position: relative; width: 100vw; height: 100vh; }
+        
+        /* Placeholder pre Big Screen */
+        #placeholder {
+            position: absolute; inset: 0; 
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: radial-gradient(circle, #222 0%, #000 100%);
+            z-index: 10;
+        }
+        video { width: 100%; height: 100%; object-fit: contain; position: relative; z-index: 20; display: none; }
+    </style>
 </head>
 <body>
-    <div id="start-overlay" class="start-overlay"><button class="btn-primary" onclick="startBS()">START</button></div>
-    <div class="video-wrapper"><video id="screenVideo" autoplay playsinline style="width:100%;height:100%;object-fit:contain;"></video></div>
+    <div id="start-overlay" style="position:absolute; inset:0; background:black; z-index:9999; display:flex; justify-content:center; align-items:center;">
+        <button onclick="startBS()" style="padding:20px; font-size:20px; background:#007aff; color:white; border:none; border-radius:10px; cursor:pointer;">AKTIVOVAŤ PREZENTÁCIU</button>
+    </div>
+
+    <div class="wrapper">
+        <!-- Placeholder -->
+        <div id="placeholder">
+            <div style="font-size: 80px;">📺</div>
+            <h1 style="margin-top: 20px; color: #888;">Pripravené na zdieľanie</h1>
+        </div>
+
+        <video id="screenVideo" autoplay playsinline></video>
+    </div>
 
     <script>
         const socket = io('/');
         const peerConfig = {
-            host: '0.peerjs.com', port: 443, secure: true, debug: 2,
-            config: { 'iceServers': [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
-                { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
-                { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
-            ]}
+            host: '0.peerjs.com', port: 443, secure: true,
+            config: { iceTransportPolicy: 'all', 'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }] }
         };
 
         function startBS() {
             document.getElementById('start-overlay').style.display = 'none';
             const peer = new Peer(peerConfig);
             
-            peer.on('open', (id) => {
-                console.log("BigScreen ID: " + id);
+            peer.on('open', id => {
+                console.log("ID: " + id);
                 socket.emit('register-bigscreen', id);
             });
 
             peer.on('call', call => {
                 call.answer();
                 call.on('stream', s => {
-                    document.getElementById('screenVideo').srcObject = s;
+                    // Prišiel stream -> Schovať placeholder, ukázať video
+                    document.getElementById('placeholder').style.display = 'none';
+                    const v = document.getElementById('screenVideo');
+                    v.style.display = 'block';
+                    v.srcObject = s;
                 });
+            });
+
+            // Keď ktokoľvek klikne "Stop Sharing"
+            socket.on('stopped-sharing', () => {
+                const v = document.getElementById('screenVideo');
+                v.srcObject = null; // Vyčistiť
+                v.style.display = 'none'; // Skryť
+                document.getElementById('placeholder').style.display = 'flex'; // Ukázať background
             });
         }
     </script>
