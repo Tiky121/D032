@@ -3,38 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Remote PRO</title>
+    <title>Remote SPLIT</title>
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #121212; color: white; font-family: sans-serif; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
-
         .video-container { flex: 1; display: grid; gap: 10px; padding: 10px; position: relative; grid-template-rows: 1fr 1fr; }
         @media (min-width: 768px) { .video-container { grid-template-rows: 1fr; grid-template-columns: 1fr 1fr; } }
-
         .video-box { background: #1e1e1e; border-radius: 16px; overflow: hidden; position: relative; display: flex; justify-content: center; align-items: center; }
         video { width: 100%; height: 100%; object-fit: cover; }
         .label { position: absolute; bottom: 10px; left: 10px; background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 10px; font-size: 12px; }
-
-        /* Zdieľaná obrazovka (Full overlay) */
-        .full-screen-share {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 50; background: #000;
-            display: none; /* Default skryté */
-            flex-direction: column; justify-content: center; align-items: center;
-        }
+        .full-screen-share { position: absolute; inset: 0; z-index: 50; background: #000; display: none; flex-direction: column; justify-content: center; align-items: center; }
         .full-screen-share video { object-fit: contain; }
-        
-        /* Placeholder pre zdieľanie (ak sa načítava alebo čaká) */
-        .share-placeholder { color: #888; display: flex; flex-direction: column; align-items: center; }
-
         .control-bar { height: 80px; background: #1e1e1e; display: flex; justify-content: center; align-items: center; gap: 20px; flex-shrink: 0; }
         .btn { width: 55px; height: 55px; border-radius: 50%; border: none; background: #333; color: white; font-size: 24px; cursor: pointer; display: flex; justify-content: center; align-items: center; }
-        .btn-red { background: #ff4444; }
-        .btn-blue { background: #007aff; }
-        .muted-active { background: #ff4444 !important; }
-        .share-active { background: #34c759 !important; color: black; }
+        .btn-red { background: #ff4444; } .btn-blue { background: #007aff; } .muted-active { background: #ff4444 !important; } .share-active { background: #34c759 !important; color: black; }
         svg { width: 24px; height: 24px; fill: currentColor; }
     </style>
 </head>
@@ -45,17 +29,15 @@
         <button onclick="startRemote()" style="padding:15px 40px; font-size:18px; border-radius:30px; border:none; background:#007aff; color:white; font-weight:bold;">PRIPOJIŤ SA</button>
     </div>
 
+    <div id="status" style="position:absolute; top:10px; right:10px; color:lime; background:rgba(0,0,0,0.7); padding:5px; z-index:9000; font-size:12px;">Stav: Čakám</div>
+
     <div class="video-container">
-        <!-- Zdieľacia vrstva -->
         <div class="full-screen-share" id="share-box">
-            <div class="share-placeholder" id="share-loading">
-                <h2>Načítavam zdieľanie...</h2>
-            </div>
+            <h2 style="color:#888" id="share-msg">Načítavam...</h2>
             <video id="sharedScreenVideo" autoplay playsinline></video>
             <div class="label" style="background:red;">Zdieľaná obrazovka</div>
         </div>
-
-        <div class="video-box"><video id="roomVideo" autoplay playsinline></video><div class="label">Miestnosť</div></div>
+        <div class="video-box"><video id="roomVideo" autoplay playsinline></video><div class="label">Miestnosť (Audio z Mon 2)</div></div>
         <div class="video-box"><video id="myVideo" autoplay playsinline muted></video><div class="label">Ja</div></div>
     </div>
 
@@ -70,6 +52,8 @@
         const rawId = params.get('id'); 
         const targetMonNum = rawId.replace('remote', ''); 
         document.getElementById('user-id-display').innerText = rawId;
+
+        function log(msg) { document.getElementById('status').innerText = msg; console.log(msg); }
 
         const peerConfig = {
             host: '0.peerjs.com', port: 443, secure: true, debug: 1,
@@ -95,67 +79,103 @@
 
         function initPeer() {
             peer = new Peer(peerConfig);
-            peer.on('open', id => socket.emit('get-monitor-id', targetMonNum));
+            peer.on('open', id => {
+                log("Hľadám monitory...");
+                socket.emit('get-monitor-id', targetMonNum);
+                if (targetMonNum !== '2') socket.emit('get-monitor-id', '2');
+            });
 
-            socket.on('monitor-id-response', (mid) => callMonitor(mid));
-            socket.on('monitor-available', (num, mid) => { if(num===targetMonNum) callMonitor(mid); });
+            // Prijímame ID monitora aj s číslom (num)
+            socket.on('monitor-id-response', (num, monitorPeerId) => {
+                handleMonitorFound(num, monitorPeerId);
+            });
+            
+            socket.on('monitor-available', (num, monitorPeerId) => {
+                handleMonitorFound(num, monitorPeerId);
+            });
 
             // Príjem zdieľania
             peer.on('call', call => {
                 call.answer();
                 call.on('stream', s => {
-                    // Prišlo video -> Schovať loader, ukázať video
                     document.getElementById('share-loading').style.display = 'none';
                     const v = document.getElementById('sharedScreenVideo');
-                    v.style.display = 'block';
-                    v.srcObject = s;
+                    v.style.display = 'block'; v.srcObject = s;
                     document.getElementById('share-box').style.display = 'flex';
                     v.play();
                 });
             });
 
-            // RESET ZDIEĽANIA (Keď niekto iný prestane zdieľať)
             socket.on('stopped-sharing', () => {
-                document.getElementById('share-box').style.display = 'none'; // Celé okno preč
-                const v = document.getElementById('sharedScreenVideo');
-                v.srcObject = null;
-                // Reset stavu vlastného tlačidla ak som to bol ja
-                if(isSharing) {
-                    isSharing = false;
-                    document.getElementById('shareBtn').classList.remove('share-active');
-                }
+                document.getElementById('share-box').style.display = 'none';
+                document.getElementById('sharedScreenVideo').srcObject = null;
+                if(isSharing) { isSharing = false; document.getElementById('shareBtn').classList.remove('share-active'); }
             });
         }
 
-        function callMonitor(id) {
-            const call = peer.call(id, myStream);
-            call.on('stream', rs => {
-                const v = document.getElementById('roomVideo');
-                v.srcObject = rs;
-                v.play().catch(() => { v.muted=true; v.play(); });
-            });
-        }
-
-        function toggleShare() {
-            if(isSharing) { 
-                // Stop sharing
-                if(sharePeer) { sharePeer.destroy(); sharePeer=null; }
-                socket.emit('stop-share');
-                isSharing = false;
-                document.getElementById('shareBtn').classList.remove('share-active');
-                return;
+        function handleMonitorFound(num, mid) {
+            if (num === targetMonNum) {
+                // Toto je MÔJ video monitor. Posielam IBA VIDEO.
+                log("Volám Monitor " + num + " (Video)...");
+                const videoTrack = myStream.getVideoTracks()[0];
+                // Vytvoríme stream len s videom pre Monitor 1/3
+                const videoStream = new MediaStream([videoTrack]);
+                peer.call(mid, videoStream);
             } 
-            
-            navigator.mediaDevices.getDisplayMedia({ video: {cursor:"always"}, audio:false }).then(stream => {
-                isSharing = true;
-                document.getElementById('shareBtn').classList.add('share-active');
-                sharePeer = new Peer(peerConfig);
-                sharePeer.on('open', () => {
-                    socket.emit('start-share');
-                    socket.emit('get-bigscreen-id');
-                    socket.on('bigscreen-id-response', (bsId) => sharePeer.call(bsId, stream));
+            else if (num === '2' && targetMonNum !== '2') {
+                // Toto je AUDIO MASTER. Posielam IBA AUDIO.
+                log("Volám Monitor 2 (Audio)...");
+                const audioTrack = myStream.getAudioTracks()[0];
+                const audioStream = new MediaStream([audioTrack]);
+                
+                const call = peer.call(mid, audioStream);
+                
+                // A počúvam odpoveď (zvuk z miestnosti)
+                call.on('stream', roomAudioStream => {
+                    log("Zvuk z miestnosti pripojený.");
+                    const v = document.getElementById('roomVideo');
+                    // Ak už máme video z Monitora 1, pridáme k nemu audio z Monitora 2?
+                    // Nie, video element môže mať len jeden srcObject.
+                    // Ak sme Remote 2, roomVideo má všetko.
+                    // Ak sme Remote 1, roomVideo má obraz z Mon 1 (bez zvuku).
+                    // Potrebujeme prehrať zvuk z Mon 2.
+                    
+                    // Jednoduché riešenie: Video element pre Mon 1, Audio element pre Mon 2.
+                    // Ale my máme len jeden 'roomVideo' element.
+                    
+                    // Trik: Ak už v 'roomVideo' niečo beží (Video z Mon 1), vytvoríme nové audio.
+                    if (v.srcObject && v.srcObject.getVideoTracks().length > 0) {
+                        const audioEl = document.createElement('audio');
+                        audioEl.srcObject = roomAudioStream;
+                        audioEl.autoplay = true;
+                        document.body.appendChild(audioEl);
+                    } else {
+                        // Ak ešte nič nemáme, alebo sme Remote 2
+                        v.srcObject = roomAudioStream;
+                    }
                 });
-                stream.getVideoTracks()[0].onended = () => { toggleShare(); }; // Auto-stop cez lištu
+            }
+            
+            // Špeciálny prípad: Ak som Remote 2, volám Monitoru 2 všetko
+             if (num === '2' && targetMonNum === '2') {
+                log("Volám Monitor 2 (Full)...");
+                const call = peer.call(mid, myStream);
+                call.on('stream', rs => {
+                     const v = document.getElementById('roomVideo');
+                     v.srcObject = rs;
+                     v.play();
+                });
+            }
+        }
+        
+        // ... toggleShare ostáva rovnaké ...
+        function toggleShare() {
+            if(isSharing) { if(sharePeer) { sharePeer.destroy(); sharePeer=null; } socket.emit('stop-share'); isSharing = false; document.getElementById('shareBtn').classList.remove('share-active'); return; } 
+            navigator.mediaDevices.getDisplayMedia({ video: {cursor:"always"}, audio:false }).then(stream => {
+                isSharing = true; document.getElementById('shareBtn').classList.add('share-active');
+                sharePeer = new Peer(peerConfig);
+                sharePeer.on('open', () => { socket.emit('start-share'); socket.emit('get-bigscreen-id'); socket.on('bigscreen-id-response', (bsId) => sharePeer.call(bsId, stream)); });
+                stream.getVideoTracks()[0].onended = () => toggleShare();
             });
         }
     </script>
