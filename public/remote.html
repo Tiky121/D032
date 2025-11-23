@@ -59,11 +59,9 @@
     </style>
 </head>
 <body>
-    <div id="start-overlay">
-        <img src="logo.svg" alt="UMIKT" class="logo-img">
-        <h2 style="color:var(--text-gray); font-weight:400;">Prihlásený ako: <span id="user-id-display" style="color:var(--dark-blue); font-weight:bold;">...</span></h2>
-        <br>
-        <button class="btn-primary" onclick="startRemote()">PRIPOJIŤ SA</button>
+    <div id="start-overlay" style="position:absolute; inset:0; background:black; z-index:9999; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+        <h2 style="color:#aaa">ID: <span id="user-id-display">...</span></h2>
+        <button onclick="startRemote()" style="padding:15px 40px; font-size:18px; border-radius:30px; border:none; background:#007aff; color:white; font-weight:bold; margin-top:20px;">PRIPOJIŤ SA</button>
     </div>
 
     <div class="full-screen-share" id="share-box">

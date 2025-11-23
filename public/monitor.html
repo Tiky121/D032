@@ -9,7 +9,7 @@
 <body>
     <!-- Štart Overlay -->
     <div id="start-overlay">
-        <img src="logo.png" alt="UMIKT" class="logo-img" style="width: 200px;">
+        <img src="logo.svg" alt="UMIKT" class="logo-img" style="width: 200px;">
         <h1 style="color:var(--dark-blue); margin: 20px 0;">Monitor <span id="mon-num"></span></h1>
         <button class="btn-primary" onclick="startSystem()">SPUSTIŤ SYSTÉM</button>
     </div>
@@ -30,12 +30,12 @@
         </div>
     </div>
     
+    <!-- Audio Mixer pre Monitor 2 -->
     <div id="audio-mixer" style="display:none;"></div>
+    
     <div id="debug-log" style="position: absolute; bottom: 0; left: 0; padding: 5px; color: #ccc; font-size: 10px; z-index:90;">Ready</div>
 
     <script>
-        // ... (TU VLOŽ PRESNE TEN ISTÝ JS KÓD Z PREDCHÁDZAJÚCEHO MONITOR.HTML PRE MIXER) ...
-        // KÓD SA NEMENÍ, LEN HTML a CSS VYŠŠIE
         const params = new URLSearchParams(window.location.search);
         const monitorId = params.get('id');
         document.getElementById('mon-num').innerText = monitorId;
@@ -45,7 +45,15 @@
 
         const peerConfig = {
             host: '0.peerjs.com', port: 443, secure: true, debug: 1,
-            config: { iceTransportPolicy: 'all', 'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }] }
+            config: { 
+                iceTransportPolicy: 'all', 
+                'iceServers': [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+                    { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+                    { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" }
+                ]
+            }
         };
 
         const socket = io('/');
@@ -54,6 +62,7 @@
 
         function startSystem() {
             document.getElementById('start-overlay').style.display = 'none';
+            // Monitor 2 má audio zapnuté, ostatné vypnuté
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: isAudioMaster })
             .then(stream => { localStream = stream; initPeer(); }).catch(e => alert("Chyba: " + e));
         }
@@ -75,11 +84,13 @@
         function handleIncomingStream(peerId, stream) {
             const hasVideo = stream.getVideoTracks().length > 0;
             if (hasVideo) {
+                // Hlavné video
                 document.getElementById('waiting-screen').style.display = 'none';
                 const video = document.getElementById('mainVideo');
                 video.srcObject = stream;
                 attemptPlay(video);
             } else {
+                // Iba audio (Mixer pre Mon 2)
                 if (isAudioMaster) addAudioToMixer(peerId, stream);
             }
         }
@@ -98,6 +109,7 @@
             if (audioEl) audioEl.remove();
             setTimeout(() => {
                 const video = document.getElementById('mainVideo');
+                // Ak video stream skončil, obnovíme placeholder
                 if (!video.srcObject || video.srcObject.getTracks().every(t => t.readyState === 'ended')) {
                     video.srcObject = null;
                     document.getElementById('waiting-screen').style.display = 'flex';
