@@ -6,7 +6,7 @@
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
-        body { margin: 0; background: #111; overflow: hidden; font-family: sans-serif; color: white; }
+        body { margin: 0; background: rgb(255, 255, 255); overflow: hidden; font-family: sans-serif; color: rgb(0, 0, 0); }
         .wrapper { position: relative; width: 100vw; height: 100vh; }
         
         /* Placeholder pre Big Screen */
@@ -26,20 +26,10 @@
 
     <div class="wrapper">
         <div id="placeholder">
-            <img src="logo.png" alt="UMIKT" class="logo-img" style="opacity: 0.8;">
+            <img src="logo.svg" alt="UMIKT" class="logo-img" style="opacity: 0.8;">
             <div id="waiting-text">Pripravené na zdieľanie obrazovky</div>
         </div>
         <video id="screenVideo" autoplay playsinline style="display:none;"></video>
-    </div>
-
-    <div class="wrapper">
-        <!-- Placeholder -->
-        <div id="placeholder">
-            <div style="font-size: 80px;">📺</div>
-            <h1 style="margin-top: 20px; color: #888;">Pripravené na zdieľanie</h1>
-        </div>
-
-        <video id="screenVideo" autoplay playsinline></video>
     </div>
 
     <script>
