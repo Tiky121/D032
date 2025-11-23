@@ -2,28 +2,33 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>Home Office Portal</title>
+    <title>UMIKT Home Office</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="dashboard-container">
-        <div class="dashboard-title">Pripojiť sa z domu</div>
-        <div class="grid-menu">
+        <img src="logo.svg" alt="UMIKT" class="logo-img">
+        
+        <h2 style="color:var(--text-gray); margin-bottom: 30px; font-weight:400;">Pripojiť sa z domu</h2>
+        
+        <div class="card-grid">
             <a href="remote.html?id=remote1" class="card">
                 <div class="card-icon">👤</div>
-                <div class="card-title">Užívateľ 1</div>
+                <h3>Užívateľ 1</h3>
             </a>
             <a href="remote.html?id=remote2" class="card">
                 <div class="card-icon">👤</div>
-                <div class="card-title">Užívateľ 2</div>
+                <h3>Užívateľ 2</h3>
             </a>
             <a href="remote.html?id=remote3" class="card">
                 <div class="card-icon">👤</div>
-                <div class="card-title">Užívateľ 3</div>
+                <h3>Užívateľ 3</h3>
             </a>
         </div>
-        <br><br>
-        <a href="share-only.html" style="color: #555; text-decoration: none; font-size: 0.8rem;">Iba zdieľať obrazovku (Laptop v miestnosti)</a>
+        
+        <div style="margin-top: 40px;">
+            <a href="share-only.html" class="btn-primary" style="text-decoration:none; background-color: var(--text-gray);">Iba zdieľať (Laptop)</a>
+        </div>
     </div>
 </body>
 </html>

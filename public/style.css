@@ -1,220 +1,214 @@
-/* public/style.css */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
 
 :root {
-    --bg-color: #0f1014;
-    --card-bg: #1e1f24;
-    --accent-blue: #3b82f6;
-    --accent-red: #ef4444;
-    --accent-green: #10b981;
-    --text-primary: #ffffff;
-    --text-secondary: #9ca3af;
+    --primary-blue: #009edb;       /* Svetlomodrá */
+    --dark-blue: #00549f;          /* Tmavomodrá */
+    --bg-color: #f8f9fa;           /* Google-like svetlá sivá */
+    --surface-white: #ffffff;      /* Biela karta */
+    --text-dark: #202124;          /* Takmer čierna */
+    --text-gray: #5f6368;          /* Sivý text */
+    --danger: #ea4335;             /* Google Red */
+    --success: #34a853;            /* Google Green */
 }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-    margin: 0;
-    padding: 0;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Roboto', sans-serif;
     background-color: var(--bg-color);
-    color: var(--text-primary);
+    color: var(--text-dark);
+    height: 100dvh;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
-/* --- DASHBOARDY (Výber zariadení) --- */
+/* --- LOGO --- */
+.logo-img {
+    max-width: 250px;
+    height: auto;
+    margin-bottom: 20px;
+}
+
+.logo-small {
+    height: 40px;
+    width: auto;
+}
+
+/* --- DASHBOARD & SETUP (Karty) --- */
 .dashboard-container {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 100vh;
-    background: radial-gradient(circle at center, #2a2d36 0%, #0f1014 100%);
+    height: 100%;
+    padding: 20px;
+    text-align: center;
 }
 
-.dashboard-title {
-    font-size: 2rem;
-    font-weight: 600;
-    margin-bottom: 3rem;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    color: var(--text-secondary);
-}
-
-.grid-menu {
+.card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 20px;
     max-width: 1000px;
-    width: 90%;
+    width: 100%;
 }
 
 .card {
-    background: var(--card-bg);
-    border: 1px solid rgba(255,255,255,0.05);
-    border-radius: 16px;
+    background: var(--surface-white);
+    border-radius: 12px;
     padding: 30px;
-    text-align: center;
-    transition: transform 0.2s, box-shadow 0.2s;
-    cursor: pointer;
     text-decoration: none;
-    color: white;
+    color: var(--text-dark);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+    transition: all 0.3s cubic-bezier(.25,.8,.25,1);
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    border-top: 5px solid var(--dark-blue);
 }
 
 .card:hover {
+    box-shadow: 0 14px 28px rgba(0,0,0,0.1), 0 10px 10px rgba(0,0,0,0.08);
     transform: translateY(-5px);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    background: #25272e;
 }
 
-.card-icon {
-    font-size: 2rem;
-    margin-bottom: 15px;
+.card h3 { color: var(--dark-blue); margin-bottom: 10px; font-size: 1.2rem; }
+.card p { color: var(--text-gray); font-size: 0.9rem; }
+.card-icon { font-size: 2rem; margin-bottom: 15px; color: var(--primary-blue); }
+
+/* --- BUTTONS --- */
+.btn-primary {
+    background-color: var(--primary-blue);
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    border-radius: 50px; /* Pill shape */
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    box-shadow: 0 4px 6px rgba(0, 158, 219, 0.3);
+    transition: background 0.2s, transform 0.1s;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
-.card-title {
-    font-size: 1.2rem;
-    font-weight: 600;
-}
+.btn-primary:hover { background-color: #008ac0; }
+.btn-primary:active { transform: scale(0.98); }
 
-.card-desc {
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    margin-top: 5px;
-}
-
-/* --- VIDEO UI --- */
-.video-wrapper {
+/* --- VIDEO LAYOUTS --- */
+.video-wrapper, .wrapper {
     position: relative;
     width: 100vw;
     height: 100vh;
-    background: black;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    background: #000; /* Video pozadie musí byť čierne */
 }
 
-video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-/* Overlay pre Start tlačidlo */
-.start-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(0,0,0,0.85);
-    backdrop-filter: blur(10px);
+/* --- WAITING SCREENS (Placeholder) --- */
+#waiting-screen, #placeholder, #start-overlay {
+    position: absolute; inset: 0;
+    background: var(--surface-white); /* BIELE POZADIE */
     display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 1000;
     flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 50;
+    color: var(--dark-blue);
 }
 
-.btn-primary {
-    padding: 15px 40px;
-    font-size: 1.2rem;
-    background: var(--accent-blue);
-    color: white;
-    border: none;
-    border-radius: 50px;
-    cursor: pointer;
-    font-weight: 600;
-    box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
-    transition: 0.3s;
+.pulse-logo {
+    width: 150px;
+    margin-bottom: 30px;
+    animation: pulse-fade 2s infinite;
 }
 
-.btn-primary:hover {
-    background: #2563eb;
-    transform: scale(1.05);
+@keyframes pulse-fade {
+    0% { opacity: 0.6; transform: scale(0.95); }
+    50% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0.6; transform: scale(0.95); }
 }
 
-/* --- REMOTE USER GRID --- */
-.remote-layout {
+#waiting-text {
+    font-size: 1.5rem;
+    font-weight: 500;
+    color: var(--text-gray);
+    margin-top: 10px;
+}
+
+/* --- REMOTE INTERFACE --- */
+.video-container {
+    flex: 1;
     display: grid;
-    height: 100vh;
-    width: 100vw;
-    grid-template-rows: 1fr auto; /* Video area + Control Bar */
-}
-
-.video-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
     gap: 10px;
     padding: 10px;
-    background: #111;
+    background: var(--bg-color);
 }
 
 .video-box {
-    background: #222;
+    background: #000; /* Video kontajnery čierne */
     border-radius: 12px;
     overflow: hidden;
     position: relative;
-    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    border: 1px solid rgba(0,0,0,0.1);
 }
 
-.video-box video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain; /* Aby bolo vidno celú tvár/obrazovku */
-}
+video { width: 100%; height: 100%; object-fit: cover; }
 
 .label {
     position: absolute;
-    bottom: 10px;
-    left: 10px;
-    background: rgba(0,0,0,0.6);
-    padding: 5px 10px;
-    border-radius: 6px;
-    font-size: 0.8rem;
-    backdrop-filter: blur(4px);
+    bottom: 10px; left: 10px;
+    background: rgba(255, 255, 255, 0.9); /* Svetlý label */
+    color: var(--dark-blue);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 
-/* Shared Screen Full View Override */
-.full-screen-share {
-    grid-column: 1 / -1;
-    grid-row: 1 / -1;
-    z-index: 50;
-    display: none; /* JS to prepne */
-}
-
-/* --- CONTROL BAR (Spodná lišta) --- */
+/* --- CONTROL BAR (White style) --- */
 .control-bar {
     height: 80px;
-    background: #1e1f24;
+    background: var(--surface-white);
     display: flex;
     justify-content: center;
     align-items: center;
     gap: 20px;
-    border-top: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+    z-index: 100;
 }
 
-.control-btn {
-    width: 50px;
-    height: 50px;
+.btn {
+    width: 50px; height: 50px;
     border-radius: 50%;
-    border: none;
-    background: #333;
-    color: white;
-    font-size: 1.2rem;
+    border: 1px solid #eee;
+    background: white;
+    color: var(--text-gray);
+    font-size: 20px;
     cursor: pointer;
-    transition: 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: flex; justify-content: center; align-items: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
 }
 
-.control-btn:hover { background: #444; }
-.control-btn.red { background: rgba(239, 68, 68, 0.2); color: var(--accent-red); }
-.control-btn.red:hover { background: var(--accent-red); color: white; }
-.control-btn.blue { background: var(--accent-blue); }
-.control-btn.blue:hover { opacity: 0.8; }
-.control-btn.active-share { background: var(--accent-green); box-shadow: 0 0 15px var(--accent-green); }
+.btn:hover { background: #f1f3f4; transform: translateY(-2px); }
 
-/* SVG ikony */
+.btn-red { background: var(--danger); color: white; border: none; }
+.btn-red:hover { background: #d32f2f; }
+
+.btn-blue { background: var(--primary-blue); color: white; border: none; }
+.btn-blue:hover { background: #008ac0; }
+
+.muted-active { background: var(--danger) !important; color: white !important; border:none; }
+.share-active { background: var(--success) !important; color: white !important; border:none; }
+
+/* SVG */
 svg { width: 24px; height: 24px; fill: currentColor; }
+
+/* Overlay Play Button */
+#play-overlay {
+    background: rgba(255,255,255,0.9);
+    color: var(--dark-blue);
+}
+#play-btn { color: var(--primary-blue); font-size: 60px; }
