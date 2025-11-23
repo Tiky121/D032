@@ -12,16 +12,13 @@
     </div>
 
     <div class="wrapper">
-        <!-- Placeholder -->
         <div id="placeholder">
             <img src="logo.svg" alt="UMIKT" class="logo-img" style="opacity: 0.8;">
             <div id="waiting-text">Pripravené na zdieľanie obrazovky</div>
         </div>
-
         <video id="screenVideo" autoplay playsinline style="display:none;"></video>
     </div>
 
-    <!-- JS ostáva rovnaký -->
     <script>
         const socket = io('/');
         const peerConfig = {
